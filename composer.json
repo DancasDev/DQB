@@ -1,0 +1,23 @@
+{
+    "name": "dancasdev/dqb",
+    "description": "DQB (Dynamic Query Builder) DQB es una librería de PHP diseñada para simplificar la construcción de consultas SQL dinámicas y complejas.",
+    "homepage": "https://github.com/DancasDev/DQB",
+    "keywords": [
+        "php",
+        "dqb"
+    ],
+    "authors": [
+        {
+            "name": "Daniel Castillo",
+            "email": "danielcastillo.developer@gmail.com",
+            "role": "Developer"
+        }
+    ],
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "DancasDev\\DQB\\": "src"
+        }
+    }
+  }
