@@ -154,6 +154,15 @@ class DQB {
     }
 
     /**
+     * Obtener la conexión a la base de datos
+     * 
+     * @return PDO
+     */
+    public function getConnection() : PDO {
+        return $this ->connection;
+    }
+
+    /**
      * Establecer el esquema de la consulta
      * 
      * @param Schema $schema - Esquema de la consulta
@@ -230,25 +239,26 @@ class DQB {
             }
 
             if (in_array('FROM', $segments)) {
-                $response['query']['FROM'] = 'FROM ' . $this ->schema ->getPrimaryTable();
+                $tableConfig = $this ->schema ->getTableConfig($this ->schema ->getPrimaryTable());
+                $response['query']['FROM'] = 'FROM ' . $tableConfig['sql'];
             }
 
-            if (in_array('WHERE', $segments)) {
+            if (in_array('WHERE', $segments) && !empty($this ->filtersBuildData)) {
                 $joinTables += $this ->filtersBuildData['tables'];
                 $response['query']['WHERE'] = 'WHERE ' . $this ->filtersBuildData['sql'];
                 $response['params'] = $this ->filtersBuildData['sql_params'];
             }
 
-            if (in_array('ORDER BY', $segments)) {
+            if (in_array('ORDER BY', $segments) && !empty($this ->orderBuildData)) {
                 $joinTables += $this ->orderBuildData['tables'];
                 $response['query']['ORDER BY'] = 'ORDER BY ' . $this ->orderBuildData['sql'];
             }
 
-            if (in_array('JOIN', $segments)) {
+            if (in_array('JOIN', $segments) && !empty($joinTables)) {
                 $response['query']['JOIN'] = $this ->getJoinSQL($joinTables);
             }
 
-            if (in_array('LIMIT', $segments)) {
+            if (in_array('LIMIT', $segments) && !empty($this ->paginationBuildData)) {
                 $response['query']['LIMIT'] = 'LIMIT ' . $this ->paginationBuildData['sql'];
             }
         }
@@ -310,11 +320,12 @@ class DQB {
      * @return array
      */
     public function find() : array {
+        $response = [];
+
         $this ->validate();
 
+        // consulta principal
         $sqlData = $this ->getSqlData();
-
-        exit($sqlData['query']);
         
         $sqlData['query'] = $this ->connection ->prepare($sqlData['query']);
 
@@ -323,8 +334,14 @@ class DQB {
         } catch (\Throwable $th) {
             throw new DQBException('Error fetching data from database.', 0, $th);
         }
+        $response = $sqlData['query'] ->fetchAll(PDO::FETCH_ASSOC);
 
-        return $sqlData['query'] ->fetchAll(PDO::FETCH_ASSOC);
+        // consulta secundarias
+        if (!empty($this ->fieldsBuildData['tables']['extra']) && !empty($response)) {
+            $response = $this ->addExtraFields($response);
+        }
+
+        return $response;
     }
 
     /**
@@ -375,5 +392,37 @@ class DQB {
         }
 
         return $sqlData['query'] ->fetch(PDO::FETCH_ASSOC)['n'] ?? 0;
+    }
+
+    /**
+     * Correr callback de solicitud extra
+     * 
+     * @param array $records - Registros a procesar
+     * 
+     * @throws DQBException
+     * @throws SchemaException
+     * 
+     * @return array
+     */
+    private function addExtraFields(array $records) : array {
+        foreach ($this ->fieldsBuildData['tables']['extra'] as $tableKey => $info) {
+            if (!$this ->schema ->hasExtraCallback($tableKey)) {
+                throw new DQBException('Extra callback not found for table ' . $tableKey);
+            }
+
+            // obtener configuración
+            $tableConfig = $this ->schema ->getTableConfig($tableKey);
+
+            // obtener y ejecutar callback (puede lanzar la excepción SchemaException)
+            $result = $this ->schema ->runExtraCallback($tableKey, [$records, $info['fields'], $tableConfig]);
+
+            foreach ($result as $key => $values) {
+                if (isset($records[$key])) {
+                    $records[$key] += $values;
+                }
+            }
+        }
+
+        return $records;
     }
 }

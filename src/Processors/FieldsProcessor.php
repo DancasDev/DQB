@@ -44,9 +44,8 @@ class FieldsProcessor {
         }
         
         # Agregar todas las dependecias
-        exit(json_encode($response));
         if (!empty($response['tables']['extra'])) {
-            $response = $this ->addExtraDependencies($schema, $response);
+            self::processDependencyFields($schema, $response);
         }
 
         
@@ -66,25 +65,15 @@ class FieldsProcessor {
      * @return array|bool
      */
     protected static function processAllFields(Schema $schema) : array|bool {
-        $response = [
-            'sql' => [],
-            'tables' => ['main' => [], 'extra' => []],
-            'fields' => ['main' => [], 'extra' => []],
-            'fields_list' => []
-        ];
+        $result = self::initResult();
 
         $schemaConfig = $schema ->getConfig();
         foreach ($schemaConfig['fields'] as $field => $config) {
             self::validField($field, $config); // en caso de error, se lanzara una excepción
-
-            $type = $config['is_extra'] ? 'extra' : 'main';
-            $response['sql'][] = $config['sql_select'];
-            $response['tables'][$type][$config['table']] = true;
-            $response['fields'][$type][$field] = true;
-            $response['fields_list'][$field] = true;
+            self::addItemToResult($field, $config, $result);
         }
 
-        return $response;
+        return $result;
     }
 
     /**
@@ -98,12 +87,7 @@ class FieldsProcessor {
      * @return array|bool
      */
     protected static function processFieldsByShortener(Schema $schema, array $fields) : array|bool {
-        $response = [
-            'sql' => [],
-            'tables' => ['main' => [], 'extra' => []],
-            'fields' => ['main' => [], 'extra' => []],
-            'fields_list' => []
-        ];
+        $result = self::initResult();
 
         $fieldsList = $schema ->getFieldsList();
         foreach ($fields as $field) {
@@ -113,10 +97,7 @@ class FieldsProcessor {
             $shortenerPosition = strpos($field, '*');
             // sin acortador
             if ($shortenerPosition === false) {
-                if (isset($response['fields_list'][$field])) {
-                    continue;
-                }
-                elseif (isset($fieldsList[$field])) {
+                if (isset($fieldsList[$field])) {
                     $fieldsToAdd[] = $field;
                 }
             }
@@ -144,9 +125,9 @@ class FieldsProcessor {
             }
             // Acortador en medio
             else {
-                $result = explode('*', $field);
-                $prefix = $result[0];
-                $suffix = $result[1] ?? '';
+                $x = explode('*', $field);
+                $prefix = $x[0];
+                $suffix = $x[1] ?? '';
                 foreach ($fieldsList as $fieldName) {
                     if ($prefix !== substr($fieldName, 0, $shortenerPosition) || $suffix !== substr($fieldName, -strlen($suffix))) {
                         continue;
@@ -166,18 +147,17 @@ class FieldsProcessor {
             }
 
             foreach ($fieldsToAdd as $field) {
+                if (isset($result['fields']['all'][$field])) {
+                    continue;
+                }
+
                 $config = $schema ->getFieldConfig($field);
                 self::validField($field, $config); // en caso de error, se lanzara una excepción
-
-                $type = $config['is_extra'] ? 'extra' : 'main';
-                $response['sql'][] = $config['sql_select'];
-                $response['tables'][$type][$config['table']] = true;
-                $response['fields'][$type][$field] = true;
-                $response['fields_list'][$field] = true;
+                self::addItemToResult($field, $config, $result);
             }
         }
 
-        return $response;
+        return $result;
     }
 
     /**
@@ -191,36 +171,66 @@ class FieldsProcessor {
      *  @return array|bool
      */
     protected static function processFieldsBySpecification(Schema $schema, array $fields) : array|bool {
-        $response = [
-            'sql' => [],
-            'tables' => ['main' => [], 'extra' => []],
-            'fields' => ['main' => [], 'extra' => []],
-            'fields_list' => []
-        ];
+        $result = self::initResult();
         
         foreach ($fields as $field) {
             $config = $schema ->getFieldConfig($field);
             if (empty($config)) {
                 throw new FieldsProcessorException("The field '{$field}' does not exist.");
             }
-            elseif (isset($response['fields_list'][$field])) {
+            elseif (isset($result['fields']['all'][$field])) {
                 continue;
             }
             
             self::validField($field, $config); // en caso de error, se lanzara una excepción
-
-            $type = $config['is_extra'] ? 'extra' : 'main';
-            $response['sql'][] = $config['sql_select'];
-            $response['tables'][$type][$config['table']] = true;
-            $response['fields'][$type][$field] = true;
-            $response['fields_list'][$field] = true;
+            self::addItemToResult($field, $config, $result);
         }
 
-        return $response;
+        return $result;
     }
     
     /**
-     * Validar si un campo esta acto para utilizar
+     * Procesar campos de dependencias requeridos por tablas extra, estos campos se incluiran en el resultado
+     * 
+     * @param Schema $schema - Esquema de la consulta
+     * @param array $result - resultado de los campos solicitados
+     * 
+     * @throws FieldsProcessorException
+     * 
+     * @return array|bool
+     */
+    private static function processDependencyFields(Schema $schema, array &$result) : array|bool {
+        $processedTables = [];
+        $pendingTables = array_keys($result['tables']['extra']);
+        while (!empty($pendingTables)) {
+            $tableKey = array_shift($pendingTables); // Obtener y eliminar el primer elemento
+            if (isset($processedTables[$tableKey])) {
+                continue;
+            }
+
+            $tableConfig = $schema ->getTableConfig($tableKey);                
+            foreach ($tableConfig['dependency'] as $fieldKey) {
+                if (isset($result['fields']['all'][$fieldKey])) {
+                    continue;
+                }
+
+                $fieldConfig = $schema ->getFieldConfig($fieldKey);
+                if ($fieldConfig['is_extra'] && !isset($processedTables[$fieldConfig['table']])) {
+                    $pendingTables[] = $fieldConfig['table'];
+                }
+                
+                self::addItemToResult($fieldKey, $fieldConfig, $result, false);
+                
+                $processedTables[$tableKey] = true;
+            }
+        }
+
+        return $result;
+    }
+    
+    ### Utilidades
+    /**
+     * Validar si un campo esta apto para utilizar
      * 
      * @param string $field - key del campo
      * @param array $config - configuración del campo
@@ -239,52 +249,44 @@ class FieldsProcessor {
 
         return true;
     }
-    
 
     /**
-     * Agregar campos foraneos de dependencias
+     * Iniciar array de resultado
      * 
-     * @param Schema $schema - Esquema de la consulta
-     * @param array $result - resultado de los campos solicitados
-     * 
-     * @throws FieldsProcessorException
-     * 
-     * @return array|bool
+     * @return array
      */
-    protected static function addExtraDependencies(Schema $schema, array $result) : array|bool {
-        $processedTables = [];
-        $pendingTables = $result['tables']['extra'];
-        while (!empty($pendingTables)) {
-            $table = array_key_first($pendingTables);
-            $value = $pendingTables[$table];
-            unset($pendingTables[$table]);
+    private static function initResult() : array {
+        return [
+            'sql' => [],
+            'tables' => ['main' => [], 'extra' => []],
+            'fields' => ['main' => [], 'extra' => [], 'all' => []]
+        ];
+    }
 
-            if (isset($processedTables[$table])) {
-                continue;
-            }
+    /**
+     * Agregar item al resultado
+     * 
+     * @param string $fieldKey - key del campo
+     * @param array $fieldConfig - configuración del campo
+     * @param array $result - array de resultado
+     * @param bool $inRequest - Indica si el campo esta en la solicitud
+     * 
+     * @return void
+     */
+    private static function addItemToResult(string $fieldKey, array $fieldConfig, array &$result, bool $inRequest = true) {
+        $type = $fieldConfig['is_extra'] ? 'extra' : 'main';
 
-            $tableConfig = $schema ->getTableConfig($table);                
-            foreach ($tableConfig['dependency'] as $field) {
-                // Ignorar si el campo existe en los campos solicitados
-                if (isset($result['fields_list'][$field])) {
-                    continue;
-                }
+        // tabla
+        $result['tables'][$type][$fieldConfig['table']] ??= ['in_request' => $inRequest, 'fields' => []];
+        $result['tables'][$type][$fieldConfig['table']]['fields'][] = $fieldKey;
+        
+        // campo
+        $result['fields'][$type][$fieldKey] ??= ['in_request' => $inRequest, 'table' => $fieldConfig['table']];
+        $result['fields']['all'][$fieldKey] = $inRequest;
 
-                $fieldConfig = $schema ->getFieldConfig($field);
-                if ($fieldConfig['is_extra'] && !isset($processedTables[$fieldConfig['table']])) {
-                    $pendingTables[$fieldConfig['table']] ??= false;
-                }
-                
-                $type = $fieldConfig['is_extra'] ? 'extra' : 'main';
-                $result['sql'][] = $fieldConfig['sql_select'];
-                $result['tables'][$type][$fieldConfig['table']] = false;
-                $result['fields'][$type][$field] = false;
-                $result['fields_list'][$field] = false;
-                
-                $processedTables[$table] = $value;
-            }
+        // sql
+        if (!$fieldConfig['is_extra']) {
+            $result['sql'][] = $fieldConfig['sql_select'];
         }
-
-        return $result;
     }
 }

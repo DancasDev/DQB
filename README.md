@@ -30,7 +30,7 @@ DQB es ideal para:
 
 ## Instalación:
 
-Utilice Composer para descargar GAC:
+Utilice Composer para descargar DQB:
 
 ```bash
 composer require dancasdev/dqb
@@ -94,7 +94,7 @@ Las tablas se definen como un array asociativo, donde las claves son los nombres
 **Keys de configuración de tablas permitidos:**
 
 * `is_primary` (bool): Indica si es la tabla primaria (se calcula automáticamente).
-* `is_extra` (bool): Indica si se trata de una tabla cuyos campos se obtendrán de una subconsulta (false por defecto, solo aplicable a tablas secundarias). Funcionalidad aún no implementada, posiblemente mediante callbacks.
+* `is_extra` (bool): Indica si se trata de una tabla cuyos campos se obtendrán de una subconsulta (false por defecto, solo aplicable a tablas secundarias).
 * `dependency` (string|array): Campo(s) de dependencia hacia otra tabla (requerido para tablas secundarias).
 * `name` (string): Nombre real de la tabla (si está vacío, se usa la clave de configuración).
 * `alias` (string): Alias de la tabla (calculado automáticamente).
@@ -299,7 +299,7 @@ $dqb->prepare(
     itemsPerPage: 10
 );
 ```
-
+en que parte de la documentación piensas que debo de poner la documentacion de los campos calculados
 #### Ejecución de la consulta
 
 La ejecución de la consulta se realiza utilizando los métodos find, count, y countAll.
@@ -328,6 +328,88 @@ echo "SQL: " . $sqlData['query'] . "\n";
 print_r($sqlData['params']);
 ```
 ## Características Avanzadas
+
+### Inclusión de Datos Extras con Callbacks
+
+DQB permite la inclusión de datos extras que no provienen directamente de la consulta principal, mediante el uso de callbacks para tablas marcadas como `is_extra` en el esquema. Esta característica es ideal para enriquecer los resultados de la consulta con información adicional calculada o obtenida de fuentes externas, sin modificar los campos de la consulta principal.
+
+**Advertencia:** Los callbacks para tablas marcadas como `is_extra` no son recomendables para manipular grandes conjuntos de registros, ya que pueden afectar el rendimiento de la consulta.
+
+#### Casos de Uso
+
+Los callbacks son especialmente útiles en los siguientes escenarios:
+
+* **Cálculo de datos adicionales:** Incluir campos calculados basados en los datos de la consulta principal. Por ejemplo, contar el número de comentarios por publicación, calcular promedios o realizar operaciones matemáticas personalizadas y agregar esos datos como nuevos campos.
+* **Obtención de datos externos:** Integrar datos de fuentes externas, como APIs, otros servicios web o bases de datos no relacionadas, como nuevos campos en los resultados. Por ejemplo, obtener información adicional sobre un usuario desde una API de terceros o consultar datos de una base de datos de caché.
+
+#### Configuración del Esquema
+
+Para utilizar callbacks, primero debes configurar el esquema de la base de datos. En la configuración de la tabla, establece `is_extra` en `true` y registra un callback utilizando el método `setExtraCallback` de la clase `Schema`.
+
+
+```php
+use DancasDev\DQB\Schema;
+
+$tablesConfig = [
+    'users' => [],
+    'posts' => [
+        'dependency' => 'id',
+        'join' => ['on' => 'users.id = posts.user_id']
+    ],
+    'posts_details' => [
+        'dependency' => 'post_id',
+        'is_extra' => true
+    ]
+];
+
+$fieldsConfig = [
+    'id' => [],
+    'name' => [],
+    'email' => [],
+    'age' => [],
+    'city' => [],
+    'status' => [],
+    'post_id' => ['name' => 'id', 'table' => 'posts'],
+    'post_title' => ['name' => 'title', 'table' => 'posts'],
+    'post_content' => ['name' => 'content', 'table' => 'posts'],
+    'post_comment_count' => ['name' => 'count', 'table' => 'posts_details'],
+    'post_comment_field_example' => ['name' => 'field_example', 'table' => 'posts_details']
+];
+
+$schema = new Schema($tablesConfig, $fieldsConfig);
+
+// Registrar callback para la tabla 'posts_details'. Sólo se ejecuta cuando al menos uno de los campos se solicita directa o indirectamente.
+$schema->setExtraCallback('posts_details', function (array $records, array $fields, array $tableConfig) {
+    $result = [];
+    // Lógica personalizada para incluir datos extras en cada registro
+    foreach ($records as $index => $record) {
+        $result[$key] = [];
+        // Ejemplo: Cálculo del número de comentarios (simulado)
+        if (in_array('post_comment_count', $fields)) {
+            $result[$index]['post_comment_count'] = $record['post_id'] % 2 === 0 ? 2 : 0;
+        }
+
+        // Ejemplo: Obtención de datos externos (simulado)
+        if (in_array('post_comment_count', $fields)) {
+            $result[$index]['post_comment_field_example'] = $result[$key]['external_data'] = 'Datos externos para post ' . $postId;
+        }
+        
+    }
+    
+    return $result;
+});
+```
+**Parámetros del Callback**
+
+El callback registrado para una tabla recibe los siguientes parámetros:
+
+* **$records** (`array`): Un array de registros obtenidos de la consulta principal.
+* **$fields** (`array`):  Un array de los campos solicitados de la tabla.
+* **$tableConfig** (`array`): Un array con la configuración de la tabla.
+
+**Valor de Retorno del Callback**
+
+El callback debe retornar un array asociativo, donde las claves sean los índices de los registros originales y los valores sean arrays con los campos extras solicitados.
 
 ### Función `$dqb->prepare(...)` (Procesadores)
 
@@ -424,7 +506,7 @@ El parámetro `filters` define las condiciones `WHERE` de la consulta. Los filtr
             "group_1" => [
                 "group" => [["age", 18, ">="], ["age", 30, "<="]],
                 "orGroup" => [["age", 40, ">="], ["age", 50, "<="]]
-            ]
+            ],
             "group_2" => [["city", "New York"], ["city", "London", null, "OR"]],
             ["email", "%gmail.com", "LIKE", null, "AFTER"]
         ]);

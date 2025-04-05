@@ -66,6 +66,13 @@ class Schema {
      * @var array
      */
     protected array $fieldsConfigProcessed = [];
+
+    /**
+     * Listado de callback de solicitudes extra
+     * 
+     * @var array
+     */
+    protected array $extraCallbacks = [];
     
     /**
      * Lista de tipos de joins permitidos
@@ -154,6 +161,50 @@ class Schema {
         }
 
         return $this;
+    }
+
+    /**
+     * Establecer callback de solicitud extra
+     * 
+     * @param string $tableKey - Key de la tabla donde se ejecutará el callback
+     * @param callable $callback - Callback a ejecutar
+     * 
+     * @return Schema
+     */
+    function setExtraCallback(string $tableKey, callable $callback) {
+        $this ->extraCallbacks[$tableKey] = $callback;
+
+        return $this;
+    }
+
+    /**
+     * Validar si existe un callback de solicitud extra para una tabla
+     * 
+     * @param string $tableKey - Key de la tabla a validar
+     * 
+     * @return bool
+     */
+    function hasExtraCallback(string $tableKey) {
+        return isset($this ->extraCallbacks[$tableKey]);
+    }
+
+    /**
+     * Ejecutar callback de solicitud extra
+     * 
+     * @param string $tableKey - Key de la tabla a obtener el callback
+     * @param array $callbackParams - Parámetros del callback
+     * 
+     * @throws SchemaException
+     * 
+     * @return array listado nuevos campos por cada registro
+     */
+    function runExtraCallback(string $tableKey, array $callbackParams) : array {
+        $result = call_user_func_array($this ->extraCallbacks[$tableKey], $callbackParams);
+        if (!is_array($result)) {
+            throw new SchemaException('Extra callback "' . $tableKey . '"  must return an array.');
+        }
+
+        return $result;
     }
 
     /**
@@ -316,8 +367,10 @@ class Schema {
             }
         }
 
-        // marcar acceso denegado
+        # Post-proceso
+        // Campos
         foreach ($this ->fieldsConfigProcessed as $fieldName => $fieldConfig) {
+            //  Marcar acceso denegado
             $this ->fieldsConfigProcessed[$fieldName]['access_denied'] = ($fieldConfig['access_level'] > $this ->accesslevel);
         }
         
@@ -448,6 +501,8 @@ class Schema {
         if (empty($tableConfig)) {
             throw new SchemaFieldConfigBuildException("The 'table' configuration for field '{$key}' was not found registered as a table configuration.");
         }
+        
+        $config['is_extra'] = $tableConfig['is_extra'];
 
         // nivel de acceso
         $config['access_level'] = $config['access_level'] ?? $tableConfig['access_level'];
@@ -472,10 +527,9 @@ class Schema {
         }
 
         // campos necesarios
-        $config['read_disabled'] = $config['read_disabled'] ?? $tableConfig['read_disabled'];
-        $config['filter_disabled'] = $config['filter_disabled'] ?? $tableConfig['filter_disabled'];
-        $config['order_disabled'] = $config['order_disabled'] ?? $tableConfig['order_disabled'];
-        $config['is_extra'] = $tableConfig['is_extra'];
+        $config['read_disabled'] = $config['is_extra'] ? $tableConfig['read_disabled'] : ($config['read_disabled'] ?? $tableConfig['read_disabled']);
+        $config['filter_disabled'] = $config['is_extra'] ? true : ($config['filter_disabled'] ?? $tableConfig['filter_disabled']);
+        $config['order_disabled'] = $config['is_extra'] ? true : ($config['order_disabled'] ?? $tableConfig['order_disabled']);
 
         return $config;
     }
