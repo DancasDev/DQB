@@ -24,13 +24,13 @@ class OrderProcessor {
      * Procesar filtros de la consulta
      * 
      * @param Schema $schema - Esquema de la consulta
-     * @param string $order - Campos solicitados
+     * @param array $order - Campos solicitados
      * 
      * @throws OrderProcessorException
      * 
      * @return array
      */
-    public static function run(Schema $schema, string $order) : array {
+    public static function run(Schema $schema, array $order) : array {
         $response = [
             'sql' => [],
             'tables' => [],
@@ -43,17 +43,11 @@ class OrderProcessor {
             throw new OrderProcessorException('No order has been specified for the query.');
         }
         
-        $order = explode(',', $order);
-        foreach ($order as $value) {
+        foreach ($order as $field => $operator) {
             $response['order_iteration_count']++;
             if ($response['order_iteration_count'] > self::$iterationLimit) {
                 throw new OrderProcessorException('The order iteration limit has been exceeded.');
             }
-
-            // Separar campo y operador
-            $value = explode(':', $value);
-            $field = trim($value[0]);
-            $operator = strtoupper(trim($value[1] ?? 'ASC'));
 
             // Validar campo
             $config = $schema ->getFieldConfig($field);
@@ -67,11 +61,9 @@ class OrderProcessor {
                 throw new OrderProcessorException('No access to the field ' . $field . '.');
             }
 
-            if (isset($response['fields'][$field])) {
-                continue;
-            }
-
             // Validar operador
+            $operator = @(string) $operator;
+            $operator = strtoupper($operator);
             if (!in_array($operator, self::$orderOperatorsAllowed)) {
                 throw new OrderProcessorException('Field ' . $field . ' has an invalid sort type. It must be one of the following: ' . implode(', ', self::$orderOperatorsAllowed) . '.');
             }

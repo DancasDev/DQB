@@ -2,7 +2,6 @@
 
 namespace DancasDev\DQB;
 
-use PDO;
 use DancasDev\DQB\Schema;
 use DancasDev\DQB\Processors\FieldsProcessor;
 use DancasDev\DQB\Processors\FiltersProcessor;
@@ -14,17 +13,7 @@ use DancasDev\DQB\Exceptions\FiltersProcessorException;
 use DancasDev\DQB\Exceptions\OrderProcessorException;
 use DancasDev\DQB\Exceptions\PaginationProcessorException;
 
-
-
 class DQB {
-
-    /**
-     * Conexión a la base de datos
-     * 
-     * @var PDO
-     */
-    private $connection;
-
     /**
      * Esquema de la consulta
      * 
@@ -106,63 +95,6 @@ class DQB {
     }
 
     /**
-     * Establecer la conexión a la base de datos
-     * 
-     * @param PDO|array $connection - Conexión a la base de datos. Puede ser un objeto PDO o un array con los datos de conexión.
-     * 
-     * Si se proporciona un array, debe tener la siguiente estructura:
-     * [
-     *  'host' => '', // Nombre del host de la base de datos.
-     *  'username' => '', // Nombre de usuario para la conexión a la base de datos.
-     *  'password' => '', // Contraseña para la conexión a la base de datos.
-     *  'database' => '' // Nombre de la base de datos a la que conectarse.
-     * ]
-     * 
-     * @throws DQBException - Si no se puede establecer la conexión a la base de datos.
-     * 
-     * @return DQB
-     */
-    public function setConnection(PDO|array $connection) : DQB {
-        if ($connection instanceof PDO) {
-            $this->connection = $connection;
-        }
-        else {
-            foreach (['host', 'username', 'password', 'database'] as $key) {
-                if (!array_key_exists($key, $connection) || !is_string($connection[$key])) {
-                    throw new DQBException('Invalid connection parameters: you need to correctly provide the following parameters: host, username, password and database.');
-                }
-            }
-
-            
-            try {
-                $this ->connection = new PDO('mysql:host=' . $connection['host'] . ';dbname=' . $connection['database'], $connection['username'], $connection['password']);
-            } catch (\Throwable $th) {
-                throw new DQBException('Error connecting to database "' . $connection['database'] . '"', 0, $th);
-            }
-        }
-
-        return $this;
-    }
-
-    /**
-     * Validar si la conexión a la base de datos ha sido establecida
-     * 
-     * @return bool
-     */
-    public function hasConnection() : bool {
-        return $this ->connection instanceof PDO;
-    }
-
-    /**
-     * Obtener la conexión a la base de datos
-     * 
-     * @return PDO
-     */
-    public function getConnection() : PDO {
-        return $this ->connection;
-    }
-
-    /**
      * Establecer el esquema de la consulta
      * 
      * @param Schema $schema - Esquema de la consulta
@@ -189,8 +121,8 @@ class DQB {
      * Preparar datos para la construcción de la consulta
      * 
      * @param string $fields - Campos a seleccionar
-     * @param array $filters - Filtros de la consulta
-     * @param string $order - Orden de la consulta
+     * @param array|null $filters - Filtros de la consulta
+     * @param array|null $order - Orden de la consulta
      * @param int|null $page - Página a consultar
      * @param int|null $itemsPerPage - Número de elementos por página
      * 
@@ -201,11 +133,7 @@ class DQB {
      * 
      * @return DQB
      */
-    public function prepare(string $fields = '*', array $filters = null, string $order = null, int|null $page = null, int|null $itemsPerPage = null) : DQB {
-        if (!$this ->schema ->isBuilt()) {
-            $this ->schema ->buildConfig();
-        }
-        
+    public function prepare(string $fields = '*', array|null $filters = null, array|null $order = null, int|null $page = null, int|null $itemsPerPage = null) : DQB {
         $this ->fieldsBuildData = FieldsProcessor::run($this->schema, $fields);
         $this ->filtersBuildData = ($filters !== null) ? FiltersProcessor::run($this->schema, $filters) : [];
         $this ->orderBuildData = ($order !== null) ? OrderProcessor::run($this->schema, $order) : [];
@@ -220,11 +148,10 @@ class DQB {
      * Obtener la consulta SQL
      * 
      * @param array|null $segments - Segmentos de la consulta a obtener
-     * @param bool $returnQueryArray - Indica si se devuelve el consulta como array
      * 
      * @return array
      */
-    public function getSqlData(array|null $segments = null, bool $returnQueryArray = false) : array {
+    public function getSqlData(array|null $segments = null, array $s = []) : array {
         $response = [
             'query' => ['SELECT' => null, 'FROM' => null, 'JOIN' => null, 'WHERE' => null, 'ORDER BY' => null, 'LIMIT' => null],
             'params' => []
@@ -235,23 +162,23 @@ class DQB {
             $joinTables = [];
             if (in_array('SELECT', $segments)) {
                 $joinTables =  $this ->fieldsBuildData['tables']['main'];
-                $response['query']['SELECT'] = 'SELECT ' . $this ->fieldsBuildData['sql'];
+                $response['query']['SELECT'] = $this ->fieldsBuildData['sql'];
             }
 
             if (in_array('FROM', $segments)) {
                 $tableConfig = $this ->schema ->getTableConfig($this ->schema ->getPrimaryTable());
-                $response['query']['FROM'] = 'FROM ' . $tableConfig['sql'];
+                $response['query']['FROM'] = $tableConfig['sql'];
             }
 
             if (in_array('WHERE', $segments) && !empty($this ->filtersBuildData)) {
                 $joinTables += $this ->filtersBuildData['tables'];
-                $response['query']['WHERE'] = 'WHERE ' . $this ->filtersBuildData['sql'];
+                $response['query']['WHERE'] = $this ->filtersBuildData['sql'];
                 $response['params'] = $this ->filtersBuildData['sql_params'];
             }
 
             if (in_array('ORDER BY', $segments) && !empty($this ->orderBuildData)) {
                 $joinTables += $this ->orderBuildData['tables'];
-                $response['query']['ORDER BY'] = 'ORDER BY ' . $this ->orderBuildData['sql'];
+                $response['query']['ORDER BY'] = $this ->orderBuildData['sql'];
             }
 
             if (in_array('JOIN', $segments) && !empty($joinTables)) {
@@ -259,34 +186,75 @@ class DQB {
             }
 
             if (in_array('LIMIT', $segments) && !empty($this ->paginationBuildData)) {
-                $response['query']['LIMIT'] = 'LIMIT ' . $this ->paginationBuildData['sql'];
+                $response['query']['LIMIT'] = $this ->paginationBuildData['sql'];
             }
         }
-
-        $response['query'] = $returnQueryArray ? $response['query'] : implode(' ', $response['query']);
         
         return $response;
     }
 
     /**
-     * validar si todo esta bien para ejecutar una consulta
+     * Obtener SQL
      * 
-     * @throws DQBException
+     * @param array|null $segments - Segmentos de la consulta a construir
+     * @param array $segmentReplacements - Remplazos de los segmentos
      * 
-     * @return bool 
+     * @return array - ['query' => '', 'params' => []]
      */
-    private function validate() : bool {
+    public function getSql(array|null $segments = null, array $segmentReplacements = []) : array|null {
+        $response = ['query' => [], 'params' => []];
         if (!$this ->isPrepared) {
             throw new DQBException('You must prepare the data before executing the query.');
         }
-        elseif (!$this ->hasConnection()) {
-            throw new DQBException('You must set the database connection before executing the query.');
+
+        $sqlData = $this ->getSqlData($segments);
+        foreach ($sqlData['query'] as $judgment => $value) {
+            
+            if (isset($segmentReplacements[$judgment])) {
+                $value = is_callable($segmentReplacements[$judgment]) ? $segmentReplacements[$judgment]($value) : $segmentReplacements[$judgment];
+            }
+            
+            if (empty($value)) continue;
+
+            if ($judgment == 'JOIN') {
+                $response['query'][] = ' ' . $value;
+            }
+            else {
+                $response['query'][] = $judgment . ' ' . $value;
+            }
         }
 
-        return true;
+        $response['query'] = implode(' ', $response['query']);
+        $response['params'] = $sqlData['params'];
+        
+        return $response;
+    }
+
+    // -- Metodos para agregar datos adicionales al restultado --
+    public function  addExtraFields(array $records) : array {
+        if (empty($records)) return $records;
+        
+        foreach ($this ->fieldsBuildData['tables']['extra'] as $tableKey => $info) {
+            if (!$this ->schema ->hasExtraCallback($tableKey)) {
+                throw new DQBException('Extra callback not found for table ' . $tableKey);
+            }
+
+            $callbackSetting = $this ->schema ->getExtraCallback($tableKey);
+            $callbackResult = $callbackSetting['callback']($records, $info, $this ->schema);
+
+            # Tipo de aderencia
+            // clave compuestas
+            if ($callbackSetting['type'] == 'compound_keys') {
+                $tableConfig = $this ->schema ->getTableConfig($tableKey);
+                $records = $this ->adhesionByCompositeKey($records, $callbackResult, $info['fields'], $tableConfig);
+            }
+        }
+
+        return $records;;
     }
 
 
+    // -- Metodos Auxiliares --
     /**
      * Obtener uniones entre tablas
      * 
@@ -313,113 +281,49 @@ class DQB {
     }
 
     /**
-     * Obtener registro
+     * Obtener key secundario de un registro
      * 
-     * @throws DQBException
+     * @param array $item - Datos del registro
+     * @param array $fields - Campos que identifican el registro
      * 
-     * @return array
+     * @return string
      */
-    public function find() : array {
+    private function buildRecordKey(array $item, array $fields) : string {
         $response = [];
-
-        $this ->validate();
-
-        // consulta principal
-        $sqlData = $this ->getSqlData();
-        
-        $sqlData['query'] = $this ->connection ->prepare($sqlData['query']);
-
-        try {
-            $sqlData['query'] ->execute($sqlData['params']);
-        } catch (\Throwable $th) {
-            throw new DQBException('Error fetching data from database.', 0, $th);
-        }
-        $response = $sqlData['query'] ->fetchAll(PDO::FETCH_ASSOC);
-
-        // consulta secundarias
-        if (!empty($this ->fieldsBuildData['tables']['extra']) && !empty($response)) {
-            $response = $this ->addExtraFields($response);
+        foreach ($fields as $field) {
+            $response[] = $item[$field] ?? null;
         }
 
-        return $response;
+        return implode('_', $response);
     }
 
     /**
-     * Contar todos los registros
-     * 
-     * @throws DQBException
-     * 
-     * @return int
-     */
-    public function countAll() : int {
-        $this ->validate();
-
-        $sqlData = $this ->getSqlData(['FROM'], true);
-        $sqlData['query']['SELECT'] = 'SELECT COUNT(*) AS n';
-        $sqlData['query'] = implode(' ', $sqlData['query']);
-        
-        $sqlData['query'] = $this ->connection ->prepare($sqlData['query']);
-
-        try {
-            $sqlData['query'] ->execute();
-        } catch (\Throwable $th) {
-            throw new DQBException('Error fetching data from database.', 0, $th);
-        }
-
-        return $sqlData['query'] ->fetch(PDO::FETCH_ASSOC)['n'] ?? 0;
-    }
-
-    /**
-     * Contar resultados
-     * 
-     * @throws DQBException
-     * 
-     * @return int
-     */
-    public function count() : int {
-        $this ->validate();
-
-        $sqlData = $this ->getSqlData(['FROM','JOIN','WHERE'], true);
-        $sqlData['query']['SELECT'] = 'SELECT COUNT(*) AS n';
-        $sqlData['query'] = implode(' ', $sqlData['query']);
-        
-        $sqlData['query'] = $this ->connection ->prepare($sqlData['query']);
-
-        try {
-            $sqlData['query'] ->execute($sqlData['params']);
-        } catch (\Throwable $th) {
-            throw new DQBException('Error fetching data from database.', 0, $th);
-        }
-
-        return $sqlData['query'] ->fetch(PDO::FETCH_ASSOC)['n'] ?? 0;
-    }
-
-    /**
-     * Correr callback de solicitud extra
+     * Agregar nuevos campos a los registros en base a una clave compuesta
      * 
      * @param array $records - Registros a procesar
+     * @param array $results - Resultados de la consulta
+     * @param array $fieldsToAdd - Campos a agregar
+     * @param array $tableConfig - Configuración de la tabla
      * 
-     * @throws DQBException
-     * @throws SchemaException
-     * 
-     * @return array
+     * @return array - Registros procesados
      */
-    private function addExtraFields(array $records) : array {
-        foreach ($this ->fieldsBuildData['tables']['extra'] as $tableKey => $info) {
-            if (!$this ->schema ->hasExtraCallback($tableKey)) {
-                throw new DQBException('Extra callback not found for table ' . $tableKey);
-            }
+    private function adhesionByCompositeKey(array $records, array $results, array $fieldsToAdd, array $tableConfig) : array {
+        // crear indice de los resultados
+        $resultsIndex = [];
+        foreach ($results as $index => $values) {
+            $key = $this ->buildRecordKey($values, $tableConfig['dependency']);
+            $resultsIndex[$key] = $index;
+        }
 
-            // obtener configuración
-            $tableConfig = $this ->schema ->getTableConfig($tableKey);
+        // Recorrer registros
+        foreach ($records as $recordKey => &$recordValues) {
+            $key = $this ->buildRecordKey($recordValues, $tableConfig['dependency']);
+            $index = $resultsIndex[$key] ?? null;
 
-            // obtener y ejecutar callback (puede lanzar la excepción SchemaException)
-            $result = $this ->schema ->runExtraCallback($tableKey, [$records, $info['fields'], $tableConfig]);
+            if ($index === null) continue;
 
-            foreach ($result as $key => $values) {
-                if (isset($records[$key])) {
-                    $records[$key] += $values;
-                }
+            foreach ($fieldsToAdd as $field) {
+                $recordValues[$field] = $results[$index][$field] ?? null;
             }
         }
 
