@@ -39,15 +39,14 @@ class FieldsProcessor {
             $response = self::processFieldsBySpecification($schema, $fields);
         }
         
-        if(empty($response['sql'])) {
-            throw new FieldsProcessorException('No fields to process.');
-        }
-        
         # Agregar todas las dependecias
         if (!empty($response['tables']['extra'])) {
             self::processDependencyFields($schema, $response);
         }
-
+        
+        if(empty($response['sql'])) {
+            throw new FieldsProcessorException('No fields to process.');
+        }
         
         $response['sql'] = implode(', ', $response['sql']);
         $response['processing_mode'] = $processingMode;
@@ -67,10 +66,16 @@ class FieldsProcessor {
     protected static function processAllFields(Schema $schema) : array|bool {
         $result = self::initResult();
 
-        $schemaConfig = $schema ->getConfig();
-        foreach ($schemaConfig['fields'] as $field => $config) {
-            self::validField($field, $config); // en caso de error, se lanzara una excepción
-            self::addItemToResult($field, $config, $result);
+        $fieldsList = $schema ->getFieldsList();
+        foreach ($fieldsList as $field) {
+            try {
+                $config = $schema ->getFieldConfig($field);
+                if (empty($config)) continue;
+                self::validField($field, $config); // en caso de error, se lanzara una excepción
+                self::addItemToResult($field, $config, $result);
+            } catch (FieldsProcessorException $e) {
+                continue; // se ignora la excepción porque es que no se tiene acceso al compo
+            }
         }
 
         return $result;
