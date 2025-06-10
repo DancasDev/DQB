@@ -122,6 +122,7 @@ class DQB {
      * 
      * @param string $fields - Campos a seleccionar
      * @param array|null $filters - Filtros de la consulta
+     * @param array|null $defaultFilters - Filtros por defecto de la consulta (esto no se limitaran si los campos estan habilitados)
      * @param array|null $order - Orden de la consulta
      * @param int|null $page - Página a consultar
      * @param int|null $itemsPerPage - Número de elementos por página
@@ -133,9 +134,9 @@ class DQB {
      * 
      * @return DQB
      */
-    public function prepare(string $fields = '*', array|null $filters = null, array|null $order = null, int|null $page = null, int|null $itemsPerPage = null) : DQB {
+    public function prepare(string $fields = '*', array|null $filters = null, array|null $defaultFilters = null, array|null $order = null, int|null $page = null, int|null $itemsPerPage = null) : DQB {
         $this ->fieldsBuildData = FieldsProcessor::run($this->schema, $fields);
-        $this ->filtersBuildData = ($filters !== null) ? FiltersProcessor::run($this->schema, $filters) : [];
+        $this ->filtersBuildData = ($filters !== null || $defaultFilters !== null) ? FiltersProcessor::run($this->schema, $filters, $defaultFilters) : [];
         $this ->orderBuildData = ($order !== null) ? OrderProcessor::run($this->schema, $order) : [];
         $this ->paginationBuildData = PaginationProcessor::run($page, $itemsPerPage);
 
@@ -250,7 +251,7 @@ class DQB {
             }
         }
 
-        return $records;;
+        return $records;
     }
 
 
