@@ -46,12 +46,13 @@ class FiltersProcessor {
      * 
      * @param Schema $schema - Esquema de la consulta
      * @param array $filters - Campos solicitados
+     * @param array $defaultFilters - Campos por defecto de la consulta (esto no se limitaran si los campos estan habilitados)
      * 
      * @throws FiltersProcessorException
      * 
      * @return array
      */
-    public static function run(Schema $schema, array $filters) : array {
+    public static function run(Schema $schema, array|null $filters = [], array|null $defaultFilters = []) : array {
         $response = [
             'sql' => [],
             'sql_params' => [],
@@ -61,9 +62,24 @@ class FiltersProcessor {
             'filters_iteration_count' => 0,
             'add_logical_operator' => false
         ];
+        $addFilters = !empty($filters);
+        $addDefaultFilters = !empty($defaultFilters);
+        if ($addDefaultFilters) {
+            self::recursiveFilterSearch($schema, $defaultFilters, $response, 'defaultFilters', false);
+            $response['filters_count'] = 0;
+            $response['filters_iteration_count'] = 0;
+            $response['add_logical_operator'] = false;
+            if ($addFilters) {
+                $response['sql'][] = ' AND (';
+            }
+        }
 
-        self::recursiveFilterSearch($schema, $filters, $response);
-
+        if (!empty($filters)) {
+            self::recursiveFilterSearch($schema, $filters, $response);
+            if ($addDefaultFilters) {
+                $response['sql'][] = ')';
+            }
+        }
         $response['sql'] = implode('', $response['sql']);
         unset($response['add_logical_operator']);
 
@@ -77,12 +93,13 @@ class FiltersProcessor {
      * @param array $reel - Campos solicitados
      * @param array $data - Datos de la consulta
      * @param string $breadcrumb - Ruta de navegación
+     * @param bool $validateAccess -Validar acceso al campo
      * 
      * @throws FiltersProcessorException
      * 
      * @return null
      */
-    private static function recursiveFilterSearch(Schema $schema, array $reel, array &$data, string $breadcrumb = 'root') {
+    private static function recursiveFilterSearch(Schema $schema, array $reel, array &$data, string $breadcrumb = 'root', bool $validateAccess = true) {
         $data['filters_iteration_count']++;
         if ($data['filters_iteration_count'] > self::$iterationLimit) {
             throw new FiltersProcessorException('The iteration limit of ' . self::$iterationLimit . ' items per request has been exceeded.');
@@ -118,7 +135,7 @@ class FiltersProcessor {
                     throw new FiltersProcessorException("The filter '{$breadcrumb}' must be an array.");
                 }
 
-                self::recursiveFilterSearch($schema, $value, $data, $breadcrumb . '/' . $key);
+                self::recursiveFilterSearch($schema, $value, $data, $breadcrumb . '/' . $key, $validateAccess);
 
                 // Cierre de grupo
                 if ($isGroup) {
@@ -132,8 +149,7 @@ class FiltersProcessor {
             if ($data['filters_count'] >= self::$limit) {
                 throw new FiltersProcessorException('The limit of ' . self::$limit . ' filters per request was exceeded.');
             }
-
-            $result = self::buildFilter($schema, $reel, $breadcrumb);
+            $result = self::buildFilter($schema, $reel, $breadcrumb, $validateAccess);
 
             $sql = ($data['add_logical_operator'] ? " {$result['logical_operator']} " : '') . "{$result['field']}";
             if ($result['relational_operator'] == 'LIKE') {
@@ -183,12 +199,13 @@ class FiltersProcessor {
      * @param Schema $schema - Esquema de la consulta
      * @param array $filter - Filtro a construir
      * @param string $breadcrumb - Ruta de navegación
+     * @param bool $validateAccess - Validar acceso al campo
      * 
      * @throws FiltersProcessorException
      * 
      * @return null
      */
-    private static function buildFilter(Schema $schema, array $filter, string $breadcrumb) {
+    private static function buildFilter(Schema $schema, array $filter, string $breadcrumb, bool $validateAccess) {
         # Validar integridad del filtro
         // Campo
         $fieldKey = $filter[0] ?? $filter['field'] ?? null;
@@ -201,10 +218,15 @@ class FiltersProcessor {
         if (empty($config)) {
             throw new FiltersProcessorException("The field '{$fieldKey}' does not exist in the schema (breadcrumb: {$breadcrumb}; index: 0).");
         }
-        elseif ($config['filter_disabled']) {
-            throw new FiltersProcessorException("The filter configuration '{$breadcrumb}' has a field '{$fieldKey}' that cannot be used as a filter (index: 0).");}
-        elseif ($config['access_denied']) {
-            throw new FiltersProcessorException("No access to the field '{$fieldKey}' (breadcrumb: {$breadcrumb}; index: 0).");
+        elseif($config['is_extra']) {
+            throw new FiltersProcessorException("The field '{$fieldKey}' cannot be used as a filter (breadcrumb: {$breadcrumb}; index: 0).");
+        }
+        elseif ($validateAccess) {
+            if ($config['filter_disabled']) {
+                throw new FiltersProcessorException("The filter configuration '{$breadcrumb}' has a field '{$fieldKey}' that cannot be used as a filter (index: 0).");}
+            elseif ($config['access_denied']) {
+                throw new FiltersProcessorException("No access to the field '{$fieldKey}' (breadcrumb: {$breadcrumb}; index: 0).");
+            }
         }
         
         // Valor
