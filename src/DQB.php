@@ -232,7 +232,7 @@ class DQB {
     }
 
     // -- Metodos para agregar datos adicionales al restultado --
-    public function  addExtraFields(array $records) : array {
+    public function  addExtraFields(array $records, bool $cleanFields = false) : array {
         if (empty($records)) return $records;
         
         foreach ($this ->fieldsBuildData['tables']['extra'] as $tableKey => $info) {
@@ -251,9 +251,38 @@ class DQB {
             }
         }
 
+        if ($cleanFields) {
+            $records = $this ->clearFields($records);
+        }
+
         return $records;
     }
 
+    /**
+     * Quita los campos que no fueron  solicitados
+     * 
+     * @param array $records - Registros a procesar
+     * 
+     * @return array
+     */
+    public function clearFields(array $records) : array {
+        $fieldsToRemove = [];
+        foreach ($this ->fieldsBuildData['fields']['all'] as $field => $inRequest) {
+            if (!$inRequest) {
+                $fieldsToRemove[] = $field;
+            }
+        }
+
+        if (!empty($fieldsToRemove)) {
+            foreach ($records as $key => $values) {
+                foreach ($fieldsToRemove as $field) {
+                    unset($records[$key][$field]);
+                }
+            }
+        }
+
+        return $records;
+    }
 
     // -- Metodos Auxiliares --
     /**
@@ -320,9 +349,6 @@ class DQB {
         foreach ($records as $recordKey => &$recordValues) {
             $key = $this ->buildRecordKey($recordValues, $tableConfig['dependency']);
             $index = $resultsIndex[$key] ?? null;
-
-            if ($index === null) continue;
-
             foreach ($fieldsToAdd as $field) {
                 $recordValues[$field] = $results[$index][$field] ?? null;
             }
