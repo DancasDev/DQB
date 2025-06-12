@@ -294,7 +294,7 @@ class Schema {
             $config['sql_select'] =  $tableConfig['sql_concat'] . '.' . $config['name'];
         }
         // campos necesarios
-        $config['read_disabled'] = $config['is_extra'] ? $tableConfig['read_disabled'] : ($config['read_disabled'] ?? $tableConfig['read_disabled']);
+        $config['read_disabled'] = $config['read_disabled'] ?? $tableConfig['read_disabled'];
         $config['filter_disabled'] = $config['is_extra'] ? true : ($config['filter_disabled'] ?? $tableConfig['filter_disabled']);
         $config['order_disabled'] = $config['is_extra'] ? true : ($config['order_disabled'] ?? $tableConfig['order_disabled']);
 
