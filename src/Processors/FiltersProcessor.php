@@ -273,7 +273,7 @@ class FiltersProcessor {
         $likeFormat = null;
         if ($relationalOperator == 'LIKE') {
             $likeFormat = $filter[4] ?? $filter['like_format'] ?? null;
-            $likeFormat = isset($likeFormat) ? 'BOTH' : strtoupper((string) $likeFormat);
+            $likeFormat = empty($likeFormat) ? 'BOTH' : strtoupper((string) $likeFormat);
             if(!in_array($likeFormat, self::$likeFormatsAllowed)) {
                 throw new FiltersProcessorException("The filter configuration '{$breadcrumb}' does not have a valid 'LIKE PATTERN' defined (index: 4; valid: " . implode(', ', self::$likeFormatsAllowed) . ').');
             }
