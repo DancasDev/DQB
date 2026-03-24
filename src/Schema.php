@@ -25,13 +25,6 @@ class Schema {
     protected array $fieldsConfig = [];
 
     /**
-     * Listado de callback de solicitudes extra
-     * 
-     * @var array
-     */
-    protected array $extraCallbacks = [];
-
-    /**
      * Nivel acceso con el que se estara descartando lops campos restringido
      * 
      * @var int
@@ -131,11 +124,11 @@ class Schema {
      * 
      * @return bool
      */
-    public function validConfig() : bool {
+    public function validateConfig() : bool {
         // Tablas
-        $this ->validTablesConfig();
+        $this ->validateTablesConfig();
         // Campos
-        $this ->validFieldsConfig();
+        $this ->validateFieldsConfig();
 
         return true;
     }
@@ -147,7 +140,7 @@ class Schema {
      * 
      * @return bool
      */
-    public function validTablesConfig() : bool {
+    public function validateTablesConfig() : bool {
         foreach ($this ->tablesConfig as $key => $configOriginal) {
             $configOriginal = (array) $configOriginal;
             $configBuilt = $this ->buildTableConfig($key, (array) $configOriginal);
@@ -157,42 +150,25 @@ class Schema {
             }
             
             if (!$configBuilt['is_primary']) {
-                if (!$configBuilt['is_extra']) {
-                    // join
-                    if (!array_key_exists('join', $configOriginal)) {
-                        throw new SchemaTableConfigBuildException("Missing 'join' configuration for table '{$key}'.");
-                    }
-                    if (!is_array($configOriginal['join'])) {
-                        throw new SchemaTableConfigBuildException("The 'join' configuration for table '{$key}' must be an array.");
-                    }
-                    if (!array_key_exists('on', $configOriginal['join'])) { // Corrected to check 'on' within $configOriginal['join']
-                        throw new SchemaTableConfigBuildException("Missing join condition for table '{$key}'. (key = 'on')");
-                    }
-                    if (!is_string($configOriginal['join']['on'])) {
-                        throw new SchemaTableConfigBuildException("The join condition for table '{$key}' must be a string.");
-                    }
-                    if (array_key_exists('type', $configOriginal['join']) && !is_string($configOriginal['join']['type'])) {
-                        throw new SchemaTableConfigBuildException("The 'join' type for table '{$key}' must be a string.");
-                    }
-                    if (!in_array($configBuilt['join']['type'], $this->typeJoinsAllowed)) {
-                        $joinType = @(string) $configOriginal['join']['type'] ?? $configBuilt['join']['type'];
-                        throw new SchemaTableConfigBuildException("Invalid join type '{$joinType}' for table '{$key}'. Allowed types: " . implode(', ', $this->typeJoinsAllowed));
-                    }
+                // join
+                if (!array_key_exists('join', $configOriginal)) {
+                    throw new SchemaTableConfigBuildException("Missing 'join' configuration for table '{$key}'.");
                 }
-                // campos de dependencia
-                if (!array_key_exists('dependency', $configBuilt)) {
-                    throw new SchemaTableConfigBuildException("Missing 'dependency' configuration for table '{$key}'.");
+                if (!is_array($configOriginal['join'])) {
+                    throw new SchemaTableConfigBuildException("The 'join' configuration for table '{$key}' must be an array.");
                 }
-                if (!is_array($configBuilt['dependency'])) {
-                    throw new SchemaTableConfigBuildException("The 'dependency' configuration for table '{$key}' must be an string or array.");
+                if (!array_key_exists('on', $configOriginal['join'])) { // Corrected to check 'on' within $configOriginal['join']
+                    throw new SchemaTableConfigBuildException("Missing join condition for table '{$key}'. (key = 'on')");
                 }
-                foreach ($configBuilt['dependency'] as $index => $field) {
-                    if (!is_string($field)) {
-                        throw new SchemaTableConfigBuildException("Dependency field at index '{$index}' for table '{$key}' must be a string.");
-                    }
-                    elseif (!array_key_exists($field, $this ->fieldsConfig)) {
-                        throw new SchemaTableConfigBuildException("Dependency field '{$field}' for table '{$key}' not found in exposed fields.");
-                    }
+                if (!is_string($configOriginal['join']['on'])) {
+                    throw new SchemaTableConfigBuildException("The join condition for table '{$key}' must be a string.");
+                }
+                if (array_key_exists('type', $configOriginal['join']) && !is_string($configOriginal['join']['type'])) {
+                    throw new SchemaTableConfigBuildException("The 'join' type for table '{$key}' must be a string.");
+                }
+                if (!in_array($configBuilt['join']['type'], $this->typeJoinsAllowed)) {
+                    $joinType = @(string) $configOriginal['join']['type'] ?? $configBuilt['join']['type'];
+                    throw new SchemaTableConfigBuildException("Invalid join type '{$joinType}' for table '{$key}'. Allowed types: " . implode(', ', $this->typeJoinsAllowed));
                 }
             }
 
@@ -209,7 +185,7 @@ class Schema {
      * 
      * @return bool
      */
-    public function validFieldsConfig() : bool {
+    public function validateFieldsConfig() : bool {
         foreach ($this ->fieldsConfig as $key => $configOriginal) {
             $configOriginal = (array) $configOriginal;
             $configBuilt = $this ->buildFieldConfig($key, (array) $configOriginal);
@@ -229,7 +205,6 @@ class Schema {
 
     protected function buildTableConfig(string $key, array $config) : array {
         $config['is_primary'] = ($key === $this ->getPrimaryTable());
-        $config['is_extra'] = $config['is_primary'] ? false : ($config['is_extra'] ?? false);
         
         // "nombre", "alias" y "declaración sql" de la tabla
         if (array_key_exists('name', $config)) {
@@ -242,26 +217,19 @@ class Schema {
             $config['alias'] = null;
             $config['sql'] = $key;
         }
-        $config['sql_concat'] = $config['is_extra'] ? $config['name'] : ($config['alias'] ?? $config['name']);
+        $config['sql_concat'] = $config['alias'] ?? $config['name'];
         $config['access_level'] ??= 0;
         $config['read_disabled'] ??= false;
         $config['filter_disabled'] ??= false;
         $config['order_disabled'] ??= false;
+        $config['group_by_disabled'] ??= false;
 
         // configuracion para tablas secundarias
         if (!$config['is_primary']) {
-            if (!$config['is_extra']) {
-                $config['join'] = @(array) ($config['join'] ?? []);
-                $config['join']['on'] = @(string) ($config['join']['on']);
-                $config['join']['type'] = @(string) ($config['join']['type'] ?? 'INNER');
-                $config['join']['type'] = strtoupper($config['join']['type']);
-            }
-            else {
-                $config['filter_disabled'] = true;
-                $config['order_disabled'] = true;
-            }
-            $config['dependency'] = @(array) ($config['dependency'] ?? []);
-            $config['dependency'] = is_string($config['dependency']) ? [$config['dependency']] : $config['dependency'];
+            $config['join'] = @(array) ($config['join'] ?? []);
+            $config['join']['on'] = @(string) ($config['join']['on']);
+            $config['join']['type'] = @(string) ($config['join']['type'] ?? 'INNER');
+            $config['join']['type'] = strtoupper($config['join']['type']);
         }
 
         $config['_built_'] = true;
@@ -275,7 +243,6 @@ class Schema {
             throw new SchemaFieldConfigBuildException("The 'table' configuration for field '{$key}' was not found registered as a table configuration.");
         }
         
-        $config['is_extra'] = $tableConfig['is_extra'];
         $config['access_level'] = $config['access_level'] ?? $tableConfig['access_level'];
         $config['access_denied'] = ($config['access_level'] > $this ->accesslevel);
         
@@ -295,28 +262,14 @@ class Schema {
         }
         // campos necesarios
         $config['read_disabled'] = $config['read_disabled'] ?? $tableConfig['read_disabled'];
-        $config['filter_disabled'] = $config['is_extra'] ? true : ($config['filter_disabled'] ?? $tableConfig['filter_disabled']);
-        $config['order_disabled'] = $config['is_extra'] ? true : ($config['order_disabled'] ?? $tableConfig['order_disabled']);
+        $config['filter_disabled'] = $config['filter_disabled'] ?? $tableConfig['filter_disabled'];
+        $config['order_disabled'] = $config['order_disabled'] ?? $tableConfig['order_disabled'];
+        $config['group_by_disabled'] = $config['group_by_disabled'] ?? $tableConfig['group_by_disabled'];
 
         $config['_built_'] = true;
         return $config;
     }
 
-    // -- Metodos para los callbacks --
-    function setExtraCallback(string $tableKey, callable $callback, array $setting = []) : Schema {
-        $setting['type'] = @(string) ($setting['type'] ?? 'compound_keys');
-        $this ->extraCallbacks[$tableKey] = array_merge($setting, ['callback' => $callback]);
-
-        return $this;
-    }
-
-    function hasExtraCallback(string $tableKey) {
-        return isset($this ->extraCallbacks[$tableKey]);
-    }
-
-    function getExtraCallback(string $tableKey) : array|null {
-        return $this ->extraCallbacks[$tableKey] ?? null;
-    }
     
     // -- Metodos auxiliares-- 
     public function getPrimaryTable() : string|null {
@@ -343,73 +296,22 @@ class Schema {
 
     // -- Metodos de utilidades --
     /**
-     * Función para detectar y gestionar las dependencias entre tablas. (crucial para la construcción de las consultas)
-     * 
-     * @param array $tables - Tablas a procesar
-     * 
-     * @throws SchemaException
-     * 
-     * @return array
-     */
-    public function getFillerTables(array $tables) : array {
-        $response = [];
-        $primaryTable = $this->getPrimaryTable();
-        $pendingTables = $tables;
-        while (!empty($pendingTables)) {
-            $table = array_key_first($pendingTables);
-            $value = $pendingTables[$table];
-            unset($pendingTables[$table]);
-            
-            if (isset($response[$table])) {
-                continue;
-            }
-            elseif ($table === $primaryTable) {
-                $response[$table] = $value;
-                continue;
-            }
-            
-            $tableConfig = $this->getTableConfig($table);
-            if (empty($tableConfig)) {
-                throw new SchemaException("Table '{$table}' not found in the schema configuration.");
-            }
-            elseif ($tableConfig['is_extra']) {
-                throw new SchemaException("Table '{$table}' is a is_extra table and cannot be used in the main query.");
-            }
-            
-            $key = array_key_first($tableConfig['dependency']);
-            $fieldConfig = $this->getFieldConfig($tableConfig['dependency'][$key]);
-            if (empty($fieldConfig)) {
-                throw new SchemaException("Field '{$tableConfig['dependency'][$key]}' not found in the schema configuration.");
-            }
-
-            $parentTable = $fieldConfig['table'];
-            $response[$table] = $value;
-
-            if (!isset($pendingTables[$parentTable])) {
-                $pendingTables[$parentTable] = false;
-            }
-        }
-        
-        return $response;
-    }
-
-    /**
      * Funcion para quitar de un array los items (campos) a los que no se tengan acceso (por nivel de acceso)
      * 
-     * @param array $fields - Campos a procesar
+     * @param array $items - Campos a procesar
      * 
      * @return array
      */
-    public function purgeFields(array $fields) : array {
-        foreach ($fields as $field => $value) {
+    public function purgeFields(array $items) : array {
+        foreach ($items as $field => $value) {
             $config = $this ->getFieldConfig($field);
             if (empty($config)) {
                 continue;
             }
             elseif ($config['access_denied']) {
-                unset($fields[$field]);
+                unset($items[$field]);
             }
         }
-        return $fields;
+        return $items;
     }
 }
