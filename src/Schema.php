@@ -170,6 +170,16 @@ class Schema {
                     $joinType = @(string) $configOriginal['join']['type'] ?? $configBuilt['join']['type'];
                     throw new SchemaTableConfigBuildException("Invalid join type '{$joinType}' for table '{$key}'. Allowed types: " . implode(', ', $this->typeJoinsAllowed));
                 }
+                // campos de dependencia
+                if (!array_key_exists('dependency', $configBuilt)) {
+                    throw new SchemaTableConfigBuildException("Missing 'dependency' configuration for table '{$key}'.");
+                }
+                if (!is_string($configBuilt['dependency'])) {
+                    throw new SchemaTableConfigBuildException("The 'dependency' configuration for table '{$key}' must be an string.");
+                }
+                elseif (!array_key_exists($configBuilt['dependency'], $this ->fieldsConfig)) {
+                    throw new SchemaTableConfigBuildException("Dependency field '{$configBuilt['dependency']}' for table '{$key}' not found in exposed fields.");
+                }
             }
 
             $this ->tablesConfig[$key] = $configBuilt;
@@ -230,6 +240,8 @@ class Schema {
             $config['join']['on'] = @(string) ($config['join']['on']);
             $config['join']['type'] = @(string) ($config['join']['type'] ?? 'INNER');
             $config['join']['type'] = strtoupper($config['join']['type']);
+
+            $config['dependency'] = @(string) ($config['dependency'] ?? null);
         }
 
         $config['_built_'] = true;
@@ -295,6 +307,53 @@ class Schema {
     }
 
     // -- Metodos de utilidades --
+    /**
+     * Función para detectar y gestionar las dependencias entre tablas. (crucial para la construcción de las consultas)
+     * 
+     * @param array $tables - Tablas a procesar
+     * 
+     * @throws SchemaException
+     * 
+     * @return array
+     */
+    public function getFillerTables(array $tables) : array {
+        $response = [];
+        $primaryTable = $this->getPrimaryTable();
+        $pendingTables = $tables;
+        while (!empty($pendingTables)) {
+            $table = array_key_first($pendingTables);
+            $value = $pendingTables[$table];
+            unset($pendingTables[$table]);
+            
+            if (isset($response[$table])) {
+                continue;
+            }
+            elseif ($table === $primaryTable) {
+                $response[$table] = $value;
+                continue;
+            }
+            
+            $tableConfig = $this->getTableConfig($table);
+            if (empty($tableConfig)) {
+                throw new SchemaException("Table '{$table}' not found in the schema configuration.");
+            }
+
+            $fieldConfig = $this->getFieldConfig($tableConfig['dependency']);
+            if (empty($fieldConfig)) {
+                throw new SchemaException("Field '{$tableConfig['dependency']}' not found in the schema configuration.");
+            }
+
+            $parentTable = $fieldConfig['table'];
+            $response[$table] = $value;
+
+            if (!isset($pendingTables[$parentTable])) {
+                $pendingTables[$parentTable] = false;
+            }
+        }
+        
+        return $response;
+    }
+
     /**
      * Funcion para quitar de un array los items (campos) a los que no se tengan acceso (por nivel de acceso)
      * 

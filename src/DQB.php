@@ -172,40 +172,53 @@ class DQB {
      */
     public function getSqlData(array|null $segments = null) : array {
         $response = [
-            'query' => ['SELECT' => null, 'FROM' => null, 'JOIN' => null, 'WHERE' => null, 'ORDER BY' => null, 'LIMIT' => null],
+            'query' => ['SELECT' => null, 'FROM' => null, 'JOIN' => null, 'WHERE' => null, 'GROUP BY' => null, 'ORDER BY' => null, 'LIMIT' => null],
             'params' => []
         ];
 
         if ($this ->isPrepared) {
-            $segments ??= ['SELECT', 'FROM', 'JOIN', 'WHERE', 'ORDER BY', 'LIMIT'];
+            $segments ??= ['SELECT', 'FROM', 'JOIN', 'WHERE', 'GROUP BY', 'ORDER BY', 'LIMIT'];
             $joinTables = [];
-            if (in_array('SELECT', $segments)) {
-                $joinTables =  $this ->fieldsBuildData['tables']['main'];
-                $response['query']['SELECT'] = $this ->fieldsBuildData['sql'];
+
+            $key = 'SELECT';
+            if (in_array($key, $segments)) {
+                $joinTables =  $this ->fieldsBuildData['tables'];
+                $response['query'][$key] = $this ->fieldsBuildData['sql'];
             }
 
-            if (in_array('FROM', $segments)) {
+            $key = 'FROM';
+            if (in_array($key, $segments)) {
                 $tableConfig = $this ->schema ->getTableConfig($this ->schema ->getPrimaryTable());
-                $response['query']['FROM'] = $tableConfig['sql'];
+                $response['query'][$key] = $tableConfig['sql'];
             }
 
-            if (in_array('WHERE', $segments) && !empty($this ->filtersBuildData)) {
+            $key = 'WHERE';
+            if (in_array($key, $segments) && !empty($this ->filtersBuildData)) {
                 $joinTables += $this ->filtersBuildData['tables'];
-                $response['query']['WHERE'] = $this ->filtersBuildData['sql'];
+                $response['query'][$key] = $this ->filtersBuildData['sql'];
                 $response['params'] = $this ->filtersBuildData['sql_params'];
             }
 
-            if (in_array('ORDER BY', $segments) && !empty($this ->orderBuildData)) {
+            $key = 'GROUP BY';
+            if (in_array($key, $segments) && !empty($this ->groupByBuildData)) {
+                $joinTables += $this ->groupByBuildData['tables'];
+                $response['query'][$key] = $this ->groupByBuildData['sql'];
+            }
+
+            $key = 'ORDER BY';
+            if (in_array($key, $segments) && !empty($this ->orderBuildData)) {
                 $joinTables += $this ->orderBuildData['tables'];
-                $response['query']['ORDER BY'] = $this ->orderBuildData['sql'];
+                $response['query'][$key] = $this ->orderBuildData['sql'];
             }
 
-            if (in_array('JOIN', $segments) && !empty($joinTables)) {
-                $response['query']['JOIN'] = $this ->getJoinSQL($joinTables);
+            $key = 'LIMIT';
+            if (in_array($key, $segments) && !empty($this ->paginationBuildData)) {
+                $response['query'][$key] = $this ->paginationBuildData['sql'];
             }
 
-            if (in_array('LIMIT', $segments) && !empty($this ->paginationBuildData)) {
-                $response['query']['LIMIT'] = $this ->paginationBuildData['sql'];
+            $key = 'JOIN';
+            if (in_array($key, $segments) && !empty($joinTables)) {
+                $response['query'][$key] = $this ->getJoinSQL($joinTables);
             }
         }
         
@@ -249,59 +262,6 @@ class DQB {
         return $response;
     }
 
-    // -- Metodos para agregar datos adicionales al restultado --
-    public function  addExtraFields(array $records, bool $cleanFields = false) : array {
-        if (empty($records)) return $records;
-        
-        foreach ($this ->fieldsBuildData['tables']['extra'] as $tableKey => $info) {
-            if (!$this ->schema ->hasExtraCallback($tableKey)) {
-                throw new DQBException('Extra callback not found for table ' . $tableKey);
-            }
-
-            $callbackSetting = $this ->schema ->getExtraCallback($tableKey);
-            $callbackResult = $callbackSetting['callback']($records, $info, $this ->schema);
-
-            # Tipo de aderencia
-            // clave compuestas
-            if ($callbackSetting['type'] == 'compound_keys') {
-                $tableConfig = $this ->schema ->getTableConfig($tableKey);
-                $records = $this ->adhesionByCompositeKey($records, $callbackResult, $info['fields'], $tableConfig);
-            }
-        }
-
-        if ($cleanFields) {
-            $records = $this ->clearFields($records);
-        }
-
-        return $records;
-    }
-
-    /**
-     * Quita los campos que no fueron  solicitados
-     * 
-     * @param array $records - Registros a procesar
-     * 
-     * @return array
-     */
-    public function clearFields(array $records) : array {
-        $fieldsToRemove = [];
-        foreach ($this ->fieldsBuildData['fields']['all'] as $field => $inRequest) {
-            if (!$inRequest) {
-                $fieldsToRemove[] = $field;
-            }
-        }
-
-        if (!empty($fieldsToRemove)) {
-            foreach ($records as $key => $values) {
-                foreach ($fieldsToRemove as $field) {
-                    unset($records[$key][$field]);
-                }
-            }
-        }
-
-        return $records;
-    }
-
     // -- Metodos Auxiliares --
     /**
      * Obtener uniones entre tablas
@@ -326,52 +286,5 @@ class DQB {
         }
 
         return implode(' ', $response);
-    }
-
-    /**
-     * Obtener key secundario de un registro
-     * 
-     * @param array $item - Datos del registro
-     * @param array $fields - Campos que identifican el registro
-     * 
-     * @return string
-     */
-    private function buildRecordKey(array $item, array $fields) : string {
-        $response = [];
-        foreach ($fields as $field) {
-            $response[] = $item[$field] ?? null;
-        }
-
-        return implode('_', $response);
-    }
-
-    /**
-     * Agregar nuevos campos a los registros en base a una clave compuesta
-     * 
-     * @param array $records - Registros a procesar
-     * @param array $results - Resultados de la consulta
-     * @param array $fieldsToAdd - Campos a agregar
-     * @param array $tableConfig - Configuración de la tabla
-     * 
-     * @return array - Registros procesados
-     */
-    private function adhesionByCompositeKey(array $records, array $results, array $fieldsToAdd, array $tableConfig) : array {
-        // crear indice de los resultados
-        $resultsIndex = [];
-        foreach ($results as $index => $values) {
-            $key = $this ->buildRecordKey($values, $tableConfig['dependency']);
-            $resultsIndex[$key] = $index;
-        }
-
-        // Recorrer registros
-        foreach ($records as $recordKey => &$recordValues) {
-            $key = $this ->buildRecordKey($recordValues, $tableConfig['dependency']);
-            $index = $resultsIndex[$key] ?? null;
-            foreach ($fieldsToAdd as $field) {
-                $recordValues[$field] = $results[$index][$field] ?? null;
-            }
-        }
-
-        return $records;
     }
 }
