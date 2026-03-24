@@ -218,9 +218,6 @@ class FiltersProcessor {
         if (empty($config)) {
             throw new FiltersProcessorException("The field '{$fieldKey}' does not exist in the schema (breadcrumb: {$breadcrumb}; index: 0).");
         }
-        elseif($config['is_extra']) {
-            throw new FiltersProcessorException("The field '{$fieldKey}' cannot be used as a filter (breadcrumb: {$breadcrumb}; index: 0).");
-        }
         elseif ($validateAccess) {
             if ($config['filter_disabled']) {
                 throw new FiltersProcessorException("The filter configuration '{$breadcrumb}' has a field '{$fieldKey}' that cannot be used as a filter (index: 0).");}
