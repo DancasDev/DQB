@@ -264,10 +264,12 @@ class FieldsProcessor {
             $result['sql'][] =  $fieldConfig['sql_select'];
         }
         else {
-            $result['sql'][] = $aggregationfunctionName . '(' . $fieldConfig['sql'] . ') AS ' . $key;
-            $result['fields_by_aggregation'][$key] = [
+            $x = $aggregationfunctionName . '(' . $fieldConfig['sql'] . ')';
+            $result['sql'][] = $x . ' AS ' . $key;
+            $result['fields_by_aggregation'][$aggregationfunctionName . '('. $fieldKey . ')'] = [
                 'function' => $aggregationfunctionName,
-                'field' => $fieldKey
+                'field' => $fieldKey,
+                'sql' => $x
             ];
         }
     }
@@ -285,8 +287,8 @@ class FieldsProcessor {
             return false;
         }
 
-        $matches[1] = strtoupper($matches[1]);
-        if (!in_array($matches[1], self::$aggregationFunctionsAllowed)) {
+        $x = strtoupper($matches[1]);
+        if (!in_array($x, self::$aggregationFunctionsAllowed)) {
             return false;
         }
         
