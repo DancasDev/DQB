@@ -170,7 +170,7 @@ class DQB {
         $this ->filtersBuildData = ($filters !== null) ? FiltersProcessor::run($this->schema, $filters) : [];
         $this ->groupByBuildData = ($groupBy !== null) ? GroupByProcessor::run($this->schema, $groupBy) : [];
         $this ->havingBuildData = (!empty($this ->groupByBuildData) && $having !== null) ? HavingProcessor::run($this->schema, $having, true, $this ->fieldsBuildData['fields_by_aggregation']) : [];
-        $this ->orderBuildData = ($order !== null) ? OrderProcessor::run($this->schema, $order) : [];
+        $this ->orderBuildData = ($order !== null) ? OrderProcessor::run($this->schema, $order, $this ->fieldsBuildData['fields_by_aggregation'] ?? []) : [];
         $this ->paginationBuildData = PaginationProcessor::run($page, $itemsPerPage);
 
         $this ->isPrepared = true;
