@@ -236,13 +236,13 @@ class FieldsProcessor {
      * Agregar item al resultado
      * 
      * @param string $fieldKey - key del campo
-     * @param string $aggregationfunctionName - Nombre de la función de agregación
+     * @param string|null $aggregationfunctionName - Nombre de la función de agregación
      * @param array $fieldConfig - configuración del campo
      * @param array $result - array de resultado
      * 
      * @return void
      */
-    private static function addItemToResult(string $fieldKey, string $aggregationfunctionName, array $fieldConfig, array &$result) {
+    private static function addItemToResult(string $fieldKey, string|null $aggregationfunctionName, array $fieldConfig, array &$result) {
         $byAggregation = !empty($aggregationfunctionName);
         $key = $byAggregation ? $fieldKey . '_' . strtolower($aggregationfunctionName) : $fieldKey;
 
