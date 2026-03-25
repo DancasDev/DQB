@@ -6,12 +6,14 @@ use DancasDev\DQB\Schema;
 use DancasDev\DQB\Processors\FieldsProcessor;
 use DancasDev\DQB\Processors\FiltersProcessor;
 use DancasDev\DQB\Processors\GroupByProcessor;
+use DancasDev\DQB\Processors\HavingProcessor;
 use DancasDev\DQB\Processors\OrderProcessor;
 use DancasDev\DQB\Processors\PaginationProcessor;
 use DancasDev\DQB\Exceptions\DQBException;
 use DancasDev\DQB\Exceptions\FieldsProcessorException;
 use DancasDev\DQB\Exceptions\FiltersProcessorException;
 use DancasDev\DQB\Exceptions\GroupByProcessorException;
+use DancasDev\DQB\Exceptions\HavingProcessorException;
 use DancasDev\DQB\Exceptions\OrderProcessorException;
 use DancasDev\DQB\Exceptions\PaginationProcessorException;
 
@@ -38,6 +40,7 @@ class DQB {
      *      'sql' => '',
      *      'tables' => [],
      *      'fields' => [],
+     *      'fields_by_aggregation' => [],
      *      'processing_mode' => 'all|shortener|specification',
      * ]
      * 
@@ -75,6 +78,15 @@ class DQB {
      * @var array
      */
     private $groupByBuildData = [];
+
+    /**
+     * HAVING procesada, estructura:
+     * 
+     * @todo definir estructura
+     * 
+     * @var array
+     */
+    private $havingBuildData = [];
 
     /**
      * Orden procesado, estructura:
@@ -139,21 +151,25 @@ class DQB {
      * @param string $fields - Campos a seleccionar
      * @param array|null $filters - Filtros de la consulta
      * @param array|null $groupBy - Agrupación de la consulta
+     * @param array|null $having - Filtros de los grupos
      * @param array|null $order - Orden de la consulta
      * @param int|null $page - Página a consultar
      * @param int|null $itemsPerPage - Número de elementos por página
      * 
      * @throws FieldsProcessorException
      * @throws FiltersProcessorException
+     * @throws GroupByProcessorException
+     * @throws HavingProcessorException
      * @throws OrderProcessorException
      * @throws PaginationProcessorException
      * 
      * @return DQB
      */
-    public function prepare(string $fields = '*', array|null $filters = null, array|null $groupBy = null, array|null $order = null, int|null $page = null, int|null $itemsPerPage = null) : DQB {
+    public function prepare(string $fields = '*', array|null $filters = null, array|null $groupBy = null, array|null $having = null, array|null $order = null, int|null $page = null, int|null $itemsPerPage = null) : DQB {
         $this ->fieldsBuildData = FieldsProcessor::run($this->schema, $fields);
         $this ->filtersBuildData = ($filters !== null) ? FiltersProcessor::run($this->schema, $filters) : [];
         $this ->groupByBuildData = ($groupBy !== null) ? GroupByProcessor::run($this->schema, $groupBy) : [];
+        $this ->havingBuildData = (!empty($this ->groupByBuildData) && $having !== null) ? HavingProcessor::run($this->schema, $having, true, $this ->fieldsBuildData['fields_by_aggregation']) : [];
         $this ->orderBuildData = ($order !== null) ? OrderProcessor::run($this->schema, $order) : [];
         $this ->paginationBuildData = PaginationProcessor::run($page, $itemsPerPage);
 
@@ -171,12 +187,12 @@ class DQB {
      */
     public function getSqlData(array|null $segments = null) : array {
         $response = [
-            'query' => ['SELECT' => null, 'FROM' => null, 'JOIN' => null, 'WHERE' => null, 'GROUP BY' => null, 'ORDER BY' => null, 'LIMIT' => null],
+            'query' => ['SELECT' => null, 'FROM' => null, 'JOIN' => null, 'WHERE' => null, 'GROUP BY' => null, 'HAVING' => null, 'ORDER BY' => null, 'LIMIT' => null],
             'params' => []
         ];
 
         if ($this ->isPrepared) {
-            $segments ??= ['SELECT', 'FROM', 'JOIN', 'WHERE', 'GROUP BY', 'ORDER BY', 'LIMIT'];
+            $segments ??= ['SELECT', 'FROM', 'JOIN', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY', 'LIMIT'];
             $joinTables = [];
 
             $key = 'SELECT';
@@ -202,6 +218,14 @@ class DQB {
             if (in_array($key, $segments) && !empty($this ->groupByBuildData)) {
                 $joinTables += $this ->groupByBuildData['tables'];
                 $response['query'][$key] = $this ->groupByBuildData['sql'];
+            }
+
+
+            $key = 'HAVING';
+            if (in_array($key, $segments) && !empty($this ->havingBuildData)) {
+                $joinTables += $this ->havingBuildData['tables'];
+                $response['query'][$key] = $this ->havingBuildData['sql'];
+                $response['params'] = array_merge($response['params'], $this ->havingBuildData['sql_params']);
             }
 
             $key = 'ORDER BY';
