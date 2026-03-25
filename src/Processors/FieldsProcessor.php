@@ -228,7 +228,8 @@ class FieldsProcessor {
         return [
             'sql' => [],
             'tables' => [],
-            'fields' => []
+            'fields' => [],
+            'fields_by_aggregation' => [],
         ];
     }
 
@@ -264,6 +265,10 @@ class FieldsProcessor {
         }
         else {
             $result['sql'][] = $aggregationfunctionName . '(' . $fieldConfig['sql'] . ') AS ' . $key;
+            $result['fields_by_aggregation'][$key] = [
+                'function' => $aggregationfunctionName,
+                'field' => $fieldKey
+            ];
         }
     }
 
