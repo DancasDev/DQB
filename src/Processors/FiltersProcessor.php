@@ -25,34 +25,108 @@ class FiltersProcessor {
      * 
      * @var array
      */
-    protected static array $relationalOperatorsAllowed = ['=','!=','>','>=','<','<=','LIKE'];
+    private static array $relationalOperatorsAllowed = ['=','!=','>','>=','<','<=','LIKE'];
 
     /**
 	 * Lista de operadores logicos permitidos.
 	 *
 	 * @var array
 	 */
-    protected static array $logicalOperatorsAllowed = ['AND','OR'];
+    private static array $logicalOperatorsAllowed = ['AND','OR'];
 
     /**
      * Lista de formato like permitidos
      * 
      * @var array
      */
-    protected static array $likeFormatsAllowed = ['BOTH','BEFORE','AFTER'];
-    
+    private static array $likeFormatsAllowed = ['BOTH','BEFORE','AFTER'];
+
+    /**
+     * Listado de callbacks validos
+     * 
+     * @var array
+     */
+    private static array $validCallbacks = [
+        'config_key_override',
+        'field_override'
+    ];
+
+    /**
+     * Callbacks para determinados partes del proceso
+     * 
+     * @var array
+     */
+    private static array $callbacks = [];
+
+
+    /**
+     * Agregar un callback a la ejecución
+     * 
+     * @param string $key - Key del callback
+     * @param callable $callback - Callback a ejecutar
+     * 
+     * @throws FiltersProcessorException
+     * 
+     * @return bool
+     */
+    public static function addCallback(string $key, callable $callback) : bool {
+        if (!in_array($key, self::$validCallbacks)) {
+            throw new FiltersProcessorException("The callback '{$key}' is not valid.");
+        }
+
+        self::$callbacks[$key] = $callback;
+
+        return true;
+    }
+
+    /**
+     * Obtener un callback
+     * 
+     * @param string $key - Key del callback
+     * 
+     * @return callable|null
+     */
+    public static function getCallback(string $key) : callable|null {
+        return self::$callbacks[$key] ?? null;
+    }
+
+    /**
+     * Remover un callback
+     * 
+     * @param string $key - Key del callback
+     * 
+     * @return callable|null
+     */
+    public static function removeCallback(string $key) : bool {
+        if (!in_array($key, self::$validCallbacks)) {
+            return false;
+        }
+
+        unset(self::$callbacks[$key]);
+
+        return true;
+    }
+
+    public static function setLimit(int $limit) {
+        self::$limit = $limit;
+    }
+
+    public static function setIterationLimit(int $iterationLimit) {
+        self::$iterationLimit = $iterationLimit;
+    }
+
     /**
      * Procesar filtros de la consulta
      * 
      * @param Schema $schema - Esquema de la consulta
      * @param array $filters - Campos solicitados
-     * @param array $defaultFilters - Campos por defecto de la consulta (esto no se limitaran si los campos estan habilitados)
+     * @param bool $validateAccess - Validar si se tiene acceso a los campos que se intentan acceder
      * 
      * @throws FiltersProcessorException
      * 
      * @return array
      */
-    public static function run(Schema $schema, array|null $filters = [], array|null $defaultFilters = []) : array {
+    public static function run(Schema $schema, array|null $filters = [], bool $validateAccess = true) : array {
         $response = [
             'sql' => [],
             'sql_params' => [],
@@ -62,24 +136,8 @@ class FiltersProcessor {
             'filters_iteration_count' => 0,
             'add_logical_operator' => false
         ];
-        $addFilters = !empty($filters);
-        $addDefaultFilters = !empty($defaultFilters);
-        if ($addDefaultFilters) {
-            self::recursiveFilterSearch($schema, $defaultFilters, $response, 'defaultFilters', false);
-            $response['filters_count'] = 0;
-            $response['filters_iteration_count'] = 0;
-            $response['add_logical_operator'] = false;
-            if ($addFilters) {
-                $response['sql'][] = ' AND (';
-            }
-        }
 
-        if (!empty($filters)) {
-            self::recursiveFilterSearch($schema, $filters, $response);
-            if ($addDefaultFilters) {
-                $response['sql'][] = ')';
-            }
-        }
+        self::recursiveFilterSearch($schema, $filters, $response, $validateAccess);
         $response['sql'] = implode('', $response['sql']);
         unset($response['add_logical_operator']);
 
@@ -213,13 +271,18 @@ class FiltersProcessor {
             throw new FiltersProcessorException("The filter configuration '{$breadcrumb}' does not have a valid field defined (index: 0).");
         }
 
-        $config = $schema ->getFieldConfig($fieldKey);
-        
+
+        $configKey = $fieldKey;
+        if (array_key_exists('config_key_override', self::$callbacks)) {
+            $configKey = self::getCallback('config_key_override')($configKey, $filter);
+            if (!is_string($configKey)) {
+                throw new FiltersProcessorException("The callback 'config_key_override' must return a string.");
+            }
+        }
+
+        $config = $schema ->getFieldConfig($configKey);        
         if (empty($config)) {
             throw new FiltersProcessorException("The field '{$fieldKey}' does not exist in the schema (breadcrumb: {$breadcrumb}; index: 0).");
-        }
-        elseif($config['is_extra']) {
-            throw new FiltersProcessorException("The field '{$fieldKey}' cannot be used as a filter (breadcrumb: {$breadcrumb}; index: 0).");
         }
         elseif ($validateAccess) {
             if ($config['filter_disabled']) {
@@ -228,6 +291,14 @@ class FiltersProcessor {
                 throw new FiltersProcessorException("No access to the field '{$fieldKey}' (breadcrumb: {$breadcrumb}; index: 0).");
             }
         }
+
+        $field = $config['sql'];
+        if (array_key_exists('field_override', self::$callbacks)) {
+            $field = self::getCallback('field_override')($fieldKey, $config, $filter);
+            if (!is_string($field)) {
+                throw new FiltersProcessorException("The callback 'field_override' must return a string.");
+            }
+        }        
         
         // Valor
         $value = $filter[1] ?? $filter['value'] ?? null;
@@ -287,7 +358,7 @@ class FiltersProcessor {
         return [
             'field_key' => $fieldKey,
             'table_key' => $config['table'],
-            'field' => $config['sql'],
+            'field' => $field,
             'value' => $value,
             'relational_operator' => $relationalOperator,
             'logical_operator' => $logicalOperator,

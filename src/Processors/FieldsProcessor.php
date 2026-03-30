@@ -7,6 +7,13 @@ use DancasDev\DQB\Exceptions\FieldsProcessorException;
 
 class FieldsProcessor {
     /**
+     * Lista de funciones de agregaciones validas
+     * 
+     * @var array
+     */
+    protected static array $aggregationFunctionsAllowed = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'];
+
+    /**
      * Procesar campos solicitados
      * 
      * @param Schema $schema - Esquema de la consulta
@@ -18,6 +25,8 @@ class FieldsProcessor {
      */
     public static function run(Schema $schema, string $fields) : array {
         $response = [];
+
+        $fields = str_replace(' ', '', $fields);
 
         # Construcción
         $processingMode = null;
@@ -37,11 +46,6 @@ class FieldsProcessor {
             $processingMode = 'specification';
             $fields = explode(',', $fields);
             $response = self::processFieldsBySpecification($schema, $fields);
-        }
-        
-        # Agregar todas las dependecias
-        if (!empty($response['tables']['extra'])) {
-            self::processDependencyFields($schema, $response);
         }
         
         if(empty($response['sql'])) {
@@ -71,8 +75,7 @@ class FieldsProcessor {
             try {
                 $config = $schema ->getFieldConfig($field);
                 if (empty($config)) continue;
-                self::validField($field, $config); // en caso de error, se lanzara una excepción
-                self::addItemToResult($field, $config, $result);
+                self::addItemToResult($field, null, $config, $result);
             } catch (FieldsProcessorException $e) {
                 continue; // se ignora la excepción porque es que no se tiene acceso al compo
             }
@@ -152,13 +155,8 @@ class FieldsProcessor {
             }
 
             foreach ($fieldsToAdd as $field) {
-                if (isset($result['fields']['all'][$field])) {
-                    continue;
-                }
-
                 $config = $schema ->getFieldConfig($field);
-                self::validField($field, $config); // en caso de error, se lanzara una excepción
-                self::addItemToResult($field, $config, $result);
+                self::addItemToResult($field, null, $config, $result);
             }
         }
 
@@ -180,54 +178,20 @@ class FieldsProcessor {
         
         foreach ($fields as $field) {
             $config = $schema ->getFieldConfig($field);
-            if (empty($config)) {
-                throw new FieldsProcessorException("The field '{$field}' does not exist.");
+            if (!empty($config)) {
+                self::addItemToResult($field, null, $config, $result);
             }
-            elseif (isset($result['fields']['all'][$field])) {
-                continue;
+            else {
+                // Añadir posible funcion de agregación
+                $aggregationData = self::scanAggregationFunctions($field);
+                if (!is_array($aggregationData) || !($config = $schema ->getFieldConfig($aggregationData['field']))) {
+                    throw new FieldsProcessorException("The field '{$field}' does not exist.");
+                }
+
+
+                self::addItemToResult($aggregationData['field'], $aggregationData['function'], $config, $result);
             }
             
-            self::validField($field, $config); // en caso de error, se lanzara una excepción
-            self::addItemToResult($field, $config, $result);
-        }
-
-        return $result;
-    }
-    
-    /**
-     * Procesar campos de dependencias requeridos por tablas extra, estos campos se incluiran en el resultado
-     * 
-     * @param Schema $schema - Esquema de la consulta
-     * @param array $result - resultado de los campos solicitados
-     * 
-     * @throws FieldsProcessorException
-     * 
-     * @return array|bool
-     */
-    private static function processDependencyFields(Schema $schema, array &$result) : array|bool {
-        $processedTables = [];
-        $pendingTables = array_keys($result['tables']['extra']);
-        while (!empty($pendingTables)) {
-            $tableKey = array_shift($pendingTables); // Obtener y eliminar el primer elemento
-            if (isset($processedTables[$tableKey])) {
-                continue;
-            }
-
-            $tableConfig = $schema ->getTableConfig($tableKey);                
-            foreach ($tableConfig['dependency'] as $fieldKey) {
-                if (isset($result['fields']['all'][$fieldKey])) {
-                    continue;
-                }
-
-                $fieldConfig = $schema ->getFieldConfig($fieldKey);
-                if ($fieldConfig['is_extra'] && !isset($processedTables[$fieldConfig['table']])) {
-                    $pendingTables[] = $fieldConfig['table'];
-                }
-                
-                self::addItemToResult($fieldKey, $fieldConfig, $result, false);
-                
-                $processedTables[$tableKey] = true;
-            }
         }
 
         return $result;
@@ -263,8 +227,9 @@ class FieldsProcessor {
     private static function initResult() : array {
         return [
             'sql' => [],
-            'tables' => ['main' => [], 'extra' => []],
-            'fields' => ['main' => [], 'extra' => [], 'all' => []]
+            'tables' => [],
+            'fields' => [],
+            'fields_by_aggregation' => [],
         ];
     }
 
@@ -272,26 +237,64 @@ class FieldsProcessor {
      * Agregar item al resultado
      * 
      * @param string $fieldKey - key del campo
+     * @param string|null $aggregationfunctionName - Nombre de la función de agregación
      * @param array $fieldConfig - configuración del campo
      * @param array $result - array de resultado
-     * @param bool $inRequest - Indica si el campo esta en la solicitud
      * 
      * @return void
      */
-    private static function addItemToResult(string $fieldKey, array $fieldConfig, array &$result, bool $inRequest = true) {
-        $type = $fieldConfig['is_extra'] ? 'extra' : 'main';
+    private static function addItemToResult(string $fieldKey, string|null $aggregationfunctionName, array $fieldConfig, array &$result) {
+        $byAggregation = !empty($aggregationfunctionName);
+        $key = $byAggregation ? $fieldKey . '_' . strtolower($aggregationfunctionName) : $fieldKey;
+
+        if (isset($result['fields'][$key])) {
+            return; // ignorar si ya se proceso
+        }
+        
+        self::validField($fieldKey, $fieldConfig); // en caso de error, se lanzara una excepción
 
         // tabla
-        $result['tables'][$type][$fieldConfig['table']] ??= ['in_request' => $inRequest, 'fields' => []];
-        $result['tables'][$type][$fieldConfig['table']]['fields'][] = $fieldKey;
-        
+        $result['tables'][$fieldConfig['table']] = true;
+    
         // campo
-        $result['fields'][$type][$fieldKey] ??= ['in_request' => $inRequest, 'table' => $fieldConfig['table']];
-        $result['fields']['all'][$fieldKey] = $inRequest;
+        $result['fields'][$key] = $fieldKey;
 
         // sql
-        if (!$fieldConfig['is_extra']) {
-            $result['sql'][] = $fieldConfig['sql_select'];
+        if (!$byAggregation) {
+            $result['sql'][] =  $fieldConfig['sql_select'];
         }
+        else {
+            $x = $aggregationfunctionName . '(' . $fieldConfig['sql'] . ')';
+            $result['sql'][] = $x . ' AS ' . $key;
+            $result['fields_by_aggregation'][$aggregationfunctionName . '('. $fieldKey . ')'] = [
+                'function' => $aggregationfunctionName,
+                'field' => $fieldKey,
+                'sql' => $x
+            ];
+        }
+    }
+
+    /**
+     * Scanear si un string es un campo con una funcion de agregación
+     * 
+     * @param string $value - Valor a analizar
+     * 
+     * @return array|bool
+     */
+    public static function scanAggregationFunctions(string $value) : array|bool {
+        $pattern = '/^([a-zA-Z_]+)\((.+)\)$/';
+        if (!preg_match($pattern, $value, $matches)) {
+            return false;
+        }
+
+        $x = strtoupper($matches[1]);
+        if (!in_array($x, self::$aggregationFunctionsAllowed)) {
+            return false;
+        }
+        
+        return [
+            'function' => $matches[1],
+            'field' => $matches[2]
+        ];
     }
 }
