@@ -2,14 +2,11 @@
 
 namespace DancasDev\DQB;
 
-use DancasDev\DQB\Adapters\CacheAdapter;
-use DancasDev\DQB\Exceptions\CacheAdapterException;
 use DancasDev\DQB\Exceptions\SchemaException;
 use DancasDev\DQB\Exceptions\SchemaTableConfigBuildException;
 use DancasDev\DQB\Exceptions\SchemaFieldConfigBuildException;
 
 class Schema {
-    public $cacheAdapter;
     /**
      * Listado de tablas con la configuración sin procesar
      * 

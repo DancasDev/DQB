@@ -135,6 +135,8 @@ class DQB {
         $this ->fieldsBuildData = [];
         $this ->filtersBuildData = [];
         $this ->orderBuildData = [];
+        $this ->groupByBuildData = [];
+        $this ->havingBuildData = [];
         $this ->paginationBuildData = [];
         $this ->isPrepared = false;
 
@@ -297,6 +299,15 @@ class DQB {
         return $response;
     }
 
+    /**
+     * Obtener campos de agregación
+     * 
+     * @return array
+     */
+    public function getAggregationFields() : array {
+        return $this ->fieldsBuildData['fields_by_aggregation'] ?? [];
+    }
+    
     // -- Metodos Auxiliares --
     /**
      * Obtener uniones entre tablas
