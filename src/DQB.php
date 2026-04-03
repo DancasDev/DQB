@@ -307,6 +307,15 @@ class DQB {
     public function getAggregationFields() : array {
         return $this ->fieldsBuildData['fields_by_aggregation'] ?? [];
     }
+
+    /** 
+     * Validar si existe campos de agregación
+     * 
+     * @return bool
+     */
+    public function hasAggregationFields() : bool {
+        return !empty($this ->fieldsBuildData['fields_by_aggregation'] ?? null);
+    }
     
     // -- Metodos Auxiliares --
     /**
