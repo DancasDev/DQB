@@ -119,14 +119,15 @@ class FiltersProcessor {
      * Procesar filtros de la consulta
      * 
      * @param Schema $schema - Esquema de la consulta
-     * @param array $filters - Campos solicitados
+     * @param ?array $filters - Filtros solicitados
+     * @param ?array $filtersDefault - Filtros por defecto de la consulta (esto no se limitaran si los campos estan habilitados)
      * @param bool $validateAccess - Validar si se tiene acceso a los campos que se intentan acceder
      * 
      * @throws FiltersProcessorException
      * 
      * @return array
      */
-    public static function run(Schema $schema, array|null $filters = [], bool $validateAccess = true) : array {
+    public static function run(Schema $schema, ?array $filters = [], ?array $filtersDefault = [], bool $validateAccess = true) : array {
         $response = [
             'sql' => [],
             'sql_params' => [],
@@ -136,8 +137,25 @@ class FiltersProcessor {
             'filters_iteration_count' => 0,
             'add_logical_operator' => false
         ];
+        
+        $addFilters = !empty($filters);
+        $addFiltersDefault = !empty($filtersDefault);
+        if ($addFiltersDefault) {
+            self::recursiveFilterSearch($schema, $filtersDefault, $response, 'filtersDefault', false);
+            $response['filters_count'] = 0;
+            $response['filters_iteration_count'] = 0;
+            $response['add_logical_operator'] = false;
+            if ($addFilters) {
+                $response['sql'][] = ' AND (';
+            }
+        }
 
-        self::recursiveFilterSearch($schema, $filters, $response, $validateAccess);
+        if (!empty($filters)) {
+            self::recursiveFilterSearch($schema, $filters, $response);
+            if ($addFiltersDefault) {
+                $response['sql'][] = ')';
+            }
+        }
         $response['sql'] = implode('', $response['sql']);
         unset($response['add_logical_operator']);
 

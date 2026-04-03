@@ -149,12 +149,14 @@ class DQB {
      * Preparar datos para la construcción de la consulta
      * 
      * @param string $fields - Campos a seleccionar
-     * @param array|null $filters - Filtros de la consulta
-     * @param array|null $groupBy - Agrupación de la consulta
-     * @param array|null $having - Filtros de los grupos
-     * @param array|null $order - Orden de la consulta
-     * @param int|null $page - Página a consultar
-     * @param int|null $itemsPerPage - Número de elementos por página
+     * @param ?array $filters - Filtros de la consulta
+     * @param ?array $filtersDefault - Filtros por defecto de la consulta (esto no se limitaran si los campos estan habilitados)
+     * @param ?array $groupBy - Agrupación de la consulta
+     * @param ?array $having - Filtros de los grupos
+     * @param ?array $havingDefault - filtros por defectos de los grupos 
+     * @param ?array $order - Orden de la consulta
+     * @param ?int $page - Página a consultar
+     * @param ?int $itemsPerPage - Número de elementos por página
      * 
      * @throws FieldsProcessorException
      * @throws FiltersProcessorException
@@ -165,11 +167,21 @@ class DQB {
      * 
      * @return DQB
      */
-    public function prepare(string $fields = '*', array|null $filters = null, array|null $groupBy = null, array|null $having = null, array|null $order = null, int|null $page = null, int|null $itemsPerPage = null) : DQB {
+    public function prepare(
+        string $fields = '*',
+        ?array $filters = null,
+        ?array $filtersDefault = null,
+        ?array $groupBy = null,
+        ?array $having = null,
+        ?array $havingDefault = null,
+        ?array $order = null,
+        ?int $page = null,
+        ?int $itemsPerPage = null) : DQB {
+
         $this ->fieldsBuildData = FieldsProcessor::run($this->schema, $fields);
-        $this ->filtersBuildData = ($filters !== null) ? FiltersProcessor::run($this->schema, $filters) : [];
+        $this ->filtersBuildData = ($filters !== null || $filtersDefault !== null) ? FiltersProcessor::run($this->schema, $filters, $filtersDefault) : [];
         $this ->groupByBuildData = ($groupBy !== null) ? GroupByProcessor::run($this->schema, $groupBy) : [];
-        $this ->havingBuildData = (!empty($this ->groupByBuildData) && $having !== null) ? HavingProcessor::run($this->schema, $having, true, $this ->fieldsBuildData['fields_by_aggregation']) : [];
+        $this ->havingBuildData = (!empty($this ->groupByBuildData) && ($having !== null || $havingDefault !== null)) ? HavingProcessor::run($this->schema, $having, $havingDefault, $this ->fieldsBuildData['fields_by_aggregation'], true) : [];
         $this ->orderBuildData = ($order !== null) ? OrderProcessor::run($this->schema, $order, $this ->fieldsBuildData['fields_by_aggregation'] ?? []) : [];
         $this ->paginationBuildData = PaginationProcessor::run($page, $itemsPerPage);
 

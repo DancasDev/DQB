@@ -202,18 +202,22 @@ class FieldsProcessor {
      * Validar si un campo esta apto para utilizar
      * 
      * @param string $field - key del campo
+     * @param bool $byAggregation - Campo por agregación
      * @param array $config - configuración del campo
      * 
      * @throws FieldsProcessorException
      * 
      * @return bool
      */
-    protected static function validField(string $field, array $config) : bool {
+    protected static function validField(string $field, bool $byAggregation, array $config) : bool {
         if ($config['read_disabled']) {
             throw new FieldsProcessorException("The field '{$field}' is disabled for reading.");
         }
         elseif ($config['access_denied']) {
             throw new FieldsProcessorException("No access to the field '{$field}'.");
+        }
+        elseif ($byAggregation && $config['group_by_disabled']) {
+            throw new FieldsProcessorException("The field '{$field}' cannot be used with aggregation functions because it is disabled for grouping.");
         }
 
         return true;
@@ -251,7 +255,7 @@ class FieldsProcessor {
             return; // ignorar si ya se proceso
         }
         
-        self::validField($fieldKey, $fieldConfig); // en caso de error, se lanzara una excepción
+        self::validField($fieldKey, $byAggregation, $fieldConfig); // en caso de error, se lanzara una excepción
 
         // tabla
         $result['tables'][$fieldConfig['table']] = true;

@@ -13,13 +13,14 @@ class HavingProcessor {
      * Procesar la cláusula HAVING
      * 
      * @param Schema $schema - Esquema de la consulta
-     * @param array $having - Filtros del having
+     * @param ?array $having - Filtros del having
+     * @param ?array $havingDefault - Filtros por defecto
      * @param array $selectFields - Campos ya procesados por FieldsProcessor
      * @param bool $validateAccess - Validar si se tiene acceso a los campos que se intentan acceder
      * 
      * @return array
      */
-    public static function run(Schema $schema, array $having, bool $validateAccess = true, array $selectFields) : array {
+    public static function run(Schema $schema, ?array $having, ?array $havingDefault, array $selectFields, bool $validateAccess = true) : array {
         // Remplazar callbacks
         $callbacks = ['config_key_override' => null, 'field_override' => null];
         foreach ($callbacks as $key => $callback) {
@@ -39,7 +40,7 @@ class HavingProcessor {
                 return $selectFields[$fieldKey]['sql'];
             });
             
-            $response = FiltersProcessor::run($schema, $having, $validateAccess);
+            $response = FiltersProcessor::run($schema, $having, $havingDefault, $validateAccess);
         } catch (FiltersProcessorException $th) {
             throw new HavingProcessorException($th->getMessage(), $th->getCode(), $th);
         }
